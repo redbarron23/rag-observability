@@ -17,9 +17,10 @@ A: The production Tier 1 coverage target is 90% within 6 months and 100%
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Set your API key (pick one)
-export ANTHROPIC_API_KEY=sk-...   # Claude
-export DEEPSEEK_API_KEY=sk-...   # DeepSeek (alternative)
+# 2. Set your API key (DeepSeek is default)
+export DEEPSEEK_API_KEY=sk-...
+# Or for Claude:
+# export ANTHROPIC_API_KEY=sk-...
 
 # 3. Ingest — reads data/*.md, chunks, embeds, stores in local ChromaDB
 python ingest.py
@@ -140,7 +141,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
              │
              ▼
     ┌───────────────────────────────────────────────┐
-    │ Claude (claude-sonnet-4-6)                    │
+    │ LLM (DeepSeek by default)                    │
     │                                               │
     │ Prompt: "Answer using ONLY this context.      │
     │          Cite source and section for each     │
@@ -172,7 +173,9 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 |---|---|---|
 | `LLM_PROVIDER` | LLM provider (`anthropic` or `deepseek`) | `anthropic` |
 | `LLM_MODEL` | Model name (provider-specific) | `claude-sonnet-4-6` or `deepseek-chat` |
-| `ANTHROPIC_API_KEY` | API key for Claude | — |
+| `DEEPSEEK_API_KEY` | API key for DeepSeek (default) | required |
+| `ANTHROPIC_API_KEY` | API key for Claude | optional |
+| `LLM_PROVIDER` | `deepseek` or `anthropic` | `deepseek` |
 | `DEEPSEEK_API_KEY` | API key for DeepSeek | — |
 
 ### CLI flags
@@ -473,7 +476,8 @@ python query.py "Your question here"
 
 - Python 3.10+
 - One of:
-  - `ANTHROPIC_API_KEY` for Claude (default provider)
+  - `DEEPSEEK_API_KEY` for DeepSeek (default provider)
+  - `ANTHROPIC_API_KEY` for Claude (optional)
   - `DEEPSEEK_API_KEY` for DeepSeek (alternative)
 
 ### Dependencies

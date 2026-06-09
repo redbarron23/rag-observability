@@ -7,8 +7,10 @@ Usage
     python query.py --n-results 5 "What is the observability framework scoring model?"
     python query.py --verbose "How does GCP metric collection differ from Azure?"
 
-This retrieves the top-k relevant chunks from Chroma, then asks Claude to
-answer the question using ONLY those chunks as sources (cited).
+This retrieves the top-k relevant chunks from Chroma, then asks an LLM
+to answer the question using ONLY those chunks as sources (cited).
+
+Default provider is DeepSeek. Set LLM_PROVIDER=anthropic to use Claude.
 """
 
 import argparse
@@ -26,12 +28,12 @@ COLLECTION_NAME = "observability-docs"
 N_RESULTS = 4
 EMBED_MODEL = "all-MiniLM-L6-v2"
 
-DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_PROVIDER = "deepseek"
+DEFAULT_MODEL = "deepseek-chat"
 
 PROVIDER_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-6",
     "deepseek": "deepseek-chat",
+    "anthropic": "claude-sonnet-4-6",
 }
 
 SYSTEM_PROMPT = """You are an observability domain expert assistant.
