@@ -1,13 +1,17 @@
 # rag-observability — RAG over Observability Docs
 
+[![CI](https://github.com/redbarron23/rag-observability/actions/workflows/ci.yml/badge.svg)](https://github.com/redbarron23/rag-observability/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+
 A Retrieval-Augmented Generation system that answers natural-language questions about multi-cloud observability architecture, coverage targets, and monitoring standards.
 
 Ask questions and get **cited answers** grounded in the actual documentation:
 
 ```
 Q: What is the coverage target for Tier 1 production resources?
-A: The production Tier 1 coverage target is 90% within 6 months and 100%
-   within 12 months (source: coverage-targets.md, section 'Tier 1').
+A: The production Tier 1 coverage target is 85% within 4 months and 100%
+   within 9 months (source: coverage-targets.md, section 'Tier 1').
 ```
 
 ## Quick start
@@ -406,6 +410,15 @@ The dual check catches both failure modes:
 | `data-first-approach` | Data freshness | `data-first-approach.md` | 6 hours |
 | `observability-setup` | Onboarding a service | `observability-setup-primer.md` | owning team, SLO |
 | `cost-smoothing` | Log Analytics cost plan | `programme/COST_SMOOTHING.md` | 20%, three waves |
+
+### Latest results
+
+| Mode | Cases | Passed |
+|---|---|---|
+| Retrieval (source attribution), no API key | 10 | 10 (100%) |
+| Full, generation with DeepSeek (fact presence) | 10 | 9 (90%) |
+
+The one miss (`tracing-use-cases`) is a generation failure, not a retrieval failure: the right chunk was retrieved, but the answer omitted the expected terms. Retrieval evals run in CI.
 
 Retrieval-only evals run in CI and exit non-zero on any failure. All 10 pass locally (top-6 retrieval).
 
