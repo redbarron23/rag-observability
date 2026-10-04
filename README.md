@@ -14,6 +14,28 @@ A: The production Tier 1 coverage target is 85% within 4 months and 100%
    within 9 months (source: coverage-targets.md, section 'Tier 1').
 ```
 
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    subgraph Ingest["Ingest (ingest.py)"]
+        D[data/*.md] --> C[Heading-aware chunking]
+        C --> E[all-MiniLM-L6-v2 embeddings]
+        E --> V[(ChromaDB)]
+    end
+    subgraph Query["Query (query.py)"]
+        Q[Question] --> QE[Embed question]
+        QE --> R[Top-k cosine retrieval]
+        V --> R
+        R --> L[LLM: Claude or DeepSeek]
+        L --> A[Answer with source citations]
+    end
+    subgraph Eval["Evals (evals.py)"]
+        R -. source attribution .-> T[Retrieval checks, run in CI]
+        A -. fact presence .-> F[Generation checks, optional]
+    end
+```
+
 ## Quick start
 
 ```bash
