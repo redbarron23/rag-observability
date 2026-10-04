@@ -86,7 +86,7 @@ class RAGEngine:
 
     def answer(self, query: str, n_results: int = N_RESULTS,
                verbose: bool = False) -> tuple[str, list[dict]]:
-        """Retrieve relevant chunks and generate an answer via Claude."""
+        """Retrieve relevant chunks and generate an answer via the configured LLM."""
         chunks = self.retrieve(query, n_results=n_results)
 
         if not chunks:

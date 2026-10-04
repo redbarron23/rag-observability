@@ -73,12 +73,12 @@ def chunk_text_simple(text: str, chunk_size: int) -> list[dict]:
         current_len = 0
 
     for line in lines:
-        heading_match = re.match(r"^(#{2,4})\s+(.+)", line)
+        heading_match = re.match(r"^(#{1,4})\s+(.+)", line)
         if heading_match:
             _flush()
             level = len(heading_match.group(1))
             title = heading_match.group(2).strip()
-            target = level - 1  # ## -> depth 1, ### -> depth 2
+            target = level - 1  # # -> depth 0, ## -> depth 1, ### -> depth 2
             while len(heading_stack) > target:
                 heading_stack.pop()
             heading_stack.append(title)
@@ -155,7 +155,12 @@ def main() -> None:
     os.makedirs(args.persist_dir, exist_ok=True)
     client = chromadb.PersistentClient(path=args.persist_dir)
 
-    collection = client.get_or_create_collection(
+    # Rebuild from scratch so re-running ingest never hits duplicate IDs
+    try:
+        client.delete_collection("observability-docs")
+    except Exception:
+        pass  # collection did not exist yet
+    collection = client.create_collection(
         name="observability-docs",
         metadata={"hnsw:space": "cosine"},
     )

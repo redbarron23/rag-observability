@@ -24,5 +24,3 @@ Thumbs.db
 # Chroma persistence
 chroma_db/
 
-# Source data (copy from observability repo)
-data/
