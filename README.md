@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 
+![rag-observability answering with a cited source](docs/demo.gif)
+
 A Retrieval-Augmented Generation system that answers natural-language questions about multi-cloud observability architecture, coverage targets, and monitoring standards.
 
 Ask questions and get **cited answers** grounded in the actual documentation:
