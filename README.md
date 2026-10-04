@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/redbarron23/rag-observability/actions/workflows/ci.yml/badge.svg)](https://github.com/redbarron23/rag-observability/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Python](https://img.shields.io/badge/python-3.11-blue)
 
 A Retrieval-Augmented Generation system that answers natural-language questions about multi-cloud observability architecture, coverage targets, and monitoring standards.
 
@@ -155,7 +155,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
     └────────┬──────────────────────────────────────┘
              │
              ▼
-    "The Tier 1 target is 90% within 6 months
+    "The Tier 1 target is 85% within 4 months
      (source: coverage-targets.md, section 'Tier 1')."
 ```
 
