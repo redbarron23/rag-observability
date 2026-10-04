@@ -25,7 +25,7 @@ from sentence_transformers import SentenceTransformer
 
 PERSIST_DIR = "chroma_db"
 COLLECTION_NAME = "observability-docs"
-N_RESULTS = 4
+N_RESULTS = 6
 EMBED_MODEL = "all-MiniLM-L6-v2"
 
 DEFAULT_PROVIDER = "deepseek"

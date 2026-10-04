@@ -152,7 +152,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
              ▼
     ┌───────────────────────────────────────────────┐
     │ ChromaDB: cosine similarity search            │
-    │ Returns top-4 chunks with their source/section│
+    │ Returns top-6 chunks with their source/section│
     └────────┬──────────────────────────────────────┘
              │
              ▼
@@ -214,7 +214,7 @@ Copy `.env.example` as a starting point.
 |---|---|---|
 | `--provider` | Override LLM_PROVIDER for one query | env var |
 | `--model` | Override LLM_MODEL for one query | env var |
-| `--n-results` | Number of chunks to retrieve | `4` |
+| `--n-results` | Number of chunks to retrieve | `6` |
 | `--verbose`, `-v` | Show retrieved chunks before the answer | `False` |
 | `--persist-dir` | ChromaDB persistence directory | `chroma_db` |
 
@@ -311,7 +311,7 @@ def retrieve(self, query: str, n_results: int = 4) -> list[dict]:
     return chunks
 ```
 
-The distance score (cosine similarity) is available but not used for filtering — the top-4 are always returned regardless of score. In a production system you'd add a similarity threshold to avoid returning irrelevant chunks.
+The distance score (cosine similarity) is available but not used for filtering — the top-6 are always returned regardless of score. In a production system you'd add a similarity threshold to avoid returning irrelevant chunks.
 
 ---
 
@@ -440,9 +440,9 @@ The dual check catches both failure modes:
 | Mode | Cases | Passed |
 |---|---|---|
 | Retrieval (source attribution), no API key | 10 | 10 (100%) |
-| Full, generation with DeepSeek (fact presence) | 10 | 9 (90%) |
+| Full, generation with DeepSeek (fact presence) | 10 | 10 (100%) |
 
-The one miss (`tracing-use-cases`) is a generation failure, not a retrieval failure: the right chunk was retrieved, but the answer omitted the expected terms. Retrieval evals run in CI.
+Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
 Retrieval-only evals run in CI and exit non-zero on any failure. All 10 pass locally (top-6 retrieval).
 
@@ -463,7 +463,7 @@ python query.py --verbose "Explain the observability framework"
 # Specify provider and model per-query
 python query.py --provider deepseek --model deepseek-chat "What is the scoring model?"
 
-# Control how many chunks are retrieved (default: 4)
+# Control how many chunks are retrieved (default: 6)
 python query.py --n-results 6 "What is the process for running a gap analysis?"
 
 # Use environment variables to set provider persistently

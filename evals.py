@@ -19,7 +19,7 @@ Use --with-llm for the full attribution + fact-presence check.
 import argparse
 import sys
 
-from query import RAGEngine
+from query import N_RESULTS, RAGEngine
 
 
 EVALS = [
@@ -135,7 +135,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     for ev in EVALS:
         try:
             answer, chunks = engine.answer(
-                ev["question"], n_results=4, verbose=False,
+                ev["question"], n_results=N_RESULTS, verbose=False,
             )
         except Exception as e:
             print(f"[SKIP] {ev['id']} — LLM error: {e}")
