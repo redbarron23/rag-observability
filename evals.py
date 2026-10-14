@@ -22,7 +22,6 @@ import sys
 
 from query import N_RESULTS, RAGEngine
 
-
 EVALS = [
     {
         "id": "coverage-targets-tier1",
@@ -145,7 +144,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
             answer, chunks = engine.answer(
                 ev["question"], n_results=N_RESULTS, verbose=False,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — any provider/SDK error fails the case
             print(f"[FAIL] {ev['id']} — LLM error: {e}")
             failed += 1
             continue

@@ -29,7 +29,7 @@ def test_chunks_carry_heading_breadcrumb():
 
 def test_sibling_headings_do_not_nest():
     chunks = chunk_text_simple(DOC, chunk_size=500)
-    tier2 = [c for c in chunks if "Tier 2 target" in c["text"]][0]
+    tier2 = next(c for c in chunks if "Tier 2 target" in c["text"])
     assert tier2["text"].startswith("Title > Tier 2\n\n")
     assert "Tier 1" not in tier2["text"]
 

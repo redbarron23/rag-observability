@@ -13,10 +13,10 @@ import argparse
 import os
 import re
 import sys
-
 from pathlib import Path
 
 import chromadb
+from chromadb.errors import NotFoundError
 
 
 def load_documents(data_dir: str) -> list[dict]:
@@ -161,7 +161,7 @@ def main() -> None:
     # Rebuild from scratch so re-running ingest never hits duplicate IDs
     try:
         client.delete_collection("observability-docs")
-    except Exception:
+    except NotFoundError:
         pass  # collection did not exist yet
     collection = client.create_collection(
         name="observability-docs",
