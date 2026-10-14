@@ -29,6 +29,9 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-all-MiniLM-L6-v2
 
+      - name: Lint
+        run: ruff check .
+
       - name: Unit tests
         run: python -m pytest tests/ -v
 

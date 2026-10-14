@@ -15,8 +15,6 @@ Default provider is Anthropic (Claude). Set LLM_PROVIDER=deepseek to use DeepSee
 
 import argparse
 import os
-import sys
-from pathlib import Path
 
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -214,7 +212,7 @@ def main() -> None:
     engine = RAGEngine(persist_dir=args.persist_dir)
 
     if args.query:
-        answer, chunks = engine.answer(
+        answer, _ = engine.answer(
             args.query,
             n_results=args.n_results,
             verbose=args.verbose,
@@ -235,7 +233,7 @@ def main() -> None:
                 break
             if not q:
                 continue
-            answer, chunks = engine.answer(
+            answer, _ = engine.answer(
                 q, n_results=args.n_results, verbose=args.verbose,
                 max_distance=args.max_distance,
             )

@@ -1,0 +1,8 @@
+# Lint only; formatting isn't enforced, to keep the existing hand-aligned style.
+target-version = "py310"
+line-length = 100
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "BLE", "RUF"]
+# Long lines are mostly eval questions and help strings; not worth wrapping.
+ignore = ["E501"]
