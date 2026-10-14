@@ -232,39 +232,11 @@ Copy `.env.example` as a starting point.
 
 Each chunk prepends its parent headings as a breadcrumb trail. This means a chunk about Tier 1 coverage targets starts with `Coverage Targets > Tier 1` even when retrieved in isolation — it's self-contained.
 
-```python
-heading_stack: list[str] = []
-
-def _section_context() -> str:
-    return " > ".join(h for h in heading_stack if h)
-```
-
-When the parser hits a `## Tier 1` heading, it updates the stack and flushes any in-progress chunk:
-
-```python
-heading_match = re.match(r"^(#{1,4})\s+(.+)", line)
-if heading_match:
-    _flush()  # save current chunk
-    level = len(heading_match.group(1))  # 2 for ##
-    title = heading_match.group(2).strip()
-    # Update stack depth: # -> depth 0, ## -> depth 1, ### -> depth 2
-    target = level - 1
-    while len(heading_stack) > target:
-        heading_stack.pop()
-    heading_stack.append(title)
-```
+Headings `#` to `####` are tracked as a stack: a new heading flushes the chunk in progress, pops any headings at the same or deeper level, and pushes itself. The chunk's `section` metadata is the deepest heading.
 
 ### Paragraph grouping, not character splitting
 
-Documents are split on paragraph boundaries (blank lines), not mid-sentence. A paragraph either fits in the current chunk or starts a new one:
-
-```python
-para_len = len(stripped)
-if current_len + para_len > chunk_size and current_paragraphs:
-    _flush()
-current_paragraphs.append(stripped)
-current_len += para_len
-```
+Documents are split on paragraph boundaries (blank lines), not mid-sentence. Paragraphs are added to the current chunk until the next one would push it past `--chunk-size` (default 500 characters); then the chunk is flushed and a new one starts. A single paragraph longer than the limit becomes its own chunk rather than being cut.
 
 This avoids the common RAG pitfall of chunks that start or end mid-sentence, which confuse the LLM.
 
@@ -289,31 +261,7 @@ The model is downloaded once on first run and cached locally (that's the `HF_TOK
 
 ## Retrieval: how it works
 
-`RAGEngine.retrieve()` in `query.py`:
-
-```python
-def retrieve(self, query: str, n_results: int = N_RESULTS) -> list[dict]:  # N_RESULTS = 6
-    # 1. Embed the question with the same model used for ingestion
-    query_embedding = self.embedder.encode([query]).tolist()[0]
-
-    # 2. Cosine similarity search in ChromaDB
-    results = self.collection.query(
-        query_embeddings=[query_embedding],
-        n_results=n_results,
-    )
-
-    # 3. Package results with source/section metadata
-    chunks = []
-    for i in range(len(results["ids"][0])):
-        chunks.append({
-            "id": results["ids"][0][i],
-            "text": results["documents"][0][i],
-            "source": results["metadatas"][0][i].get("source", "unknown"),
-            "section": results["metadatas"][0][i].get("section", ""),
-            "distance": results["distances"][0][i] if "distances" in results else None,
-        })
-    return chunks
-```
+`RAGEngine.retrieve()` in [`query.py`](query.py) embeds the question with the same model used for ingestion, runs a cosine-similarity query against ChromaDB for the top `--n-results` chunks (default 6), and returns each chunk's text with its `source`, `section` and `distance`.
 
 By default the top-6 are always returned regardless of score. Pass `--max-distance` (cosine distance, 0 = identical) to drop weak matches; if nothing survives, the answer is "No relevant documents found." and no LLM call is made. On the sample corpus, relevant chunks score roughly 0.2–0.45 and an off-topic question scores above 0.6, but tune the cutoff on your own documents.
 
@@ -332,15 +280,7 @@ The provider is determined by (in priority order):
 2. `LLM_PROVIDER` environment variable
 3. Default: `anthropic`
 
-```python
-DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-5-5"
-
-PROVIDER_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-5-5",
-    "deepseek": "deepseek-chat",
-}
-```
+Each provider has a default model (`claude-sonnet-5-5` for Anthropic, `deepseek-chat` for DeepSeek), which `LLM_MODEL` or `--model` overrides. An unknown provider name is an error. The defaults live in `DEFAULT_PROVIDER` and `PROVIDER_DEFAULT_MODELS` at the top of [`query.py`](query.py).
 
 ### Anthropic path
 
@@ -352,38 +292,16 @@ Uses `openai.OpenAI()` pointed at `https://api.deepseek.com`. The system prompt 
 
 ### System prompt (same for both providers)
 
-```python
-SYSTEM_PROMPT = """You are an observability domain expert assistant.
-
-You answer questions based ONLY on the provided context documents.
-If the context does not contain enough information to answer, say so clearly.
-
-For every factual claim, cite the source document and section in parentheses.
-Be concise and precise — this is technical infrastructure knowledge.
-
-Citation format:
-    "<claim> (source: <document>.md, section '<Section>')."
-
-Do NOT use any external knowledge. Stick strictly to what the retrieved
-chunks contain."""
-```
+`SYSTEM_PROMPT` in [`query.py`](query.py) is shared by both providers. It casts the model as an observability expert, tells it to answer only from the provided context (and to say so when the context isn't enough), and requires a citation for every factual claim in the form `(source: <document>.md, section '<Section>')`.
 
 Three constraints enforced:
 1. **No external knowledge** — if it's not in the retrieved chunks, the model must say so
 2. **Citation required** — every factual claim must cite its source
 3. **Precision** — technical infrastructure docs need exact numbers and references
 
-### User prompt template
+### User prompt
 
-```python
-f"""Answer the following question using ONLY the context below.
-Cite the source document and section for each claim you make.
-
-Question: {query}
-
-Context:
-{context}"""
-```
+The user message repeats the "only this context, cite each claim" instruction, then gives the question followed by the retrieved chunks. Each chunk is headed `[Chunk N] Source: <file>, Section: <section>` so the model can cite it.
 
 ---
 
@@ -395,26 +313,13 @@ Context:
 
 Did the RAG system retrieve chunks from the correct document(s)?
 
-This checks the retrieved chunks' metadata, not the citations written in the answer text.
-
-```python
-sources_ok = all(
-    expected in str(retrieved_sources)
-    for expected in ev["expected_sources"]
-)
-```
+This checks the retrieved chunks' metadata, not the citations written in the answer text. A case passes when every expected source appears among the top-6 retrieved chunks.
 
 **Example:** A question about tagging standards should return chunks from `tagging-standard.md`, not from `observability_framework.md`.
 
 ### Dimension 2: Fact presence
 
-Does the generated answer contain the expected factual content?
-
-```python
-for fact in ev["expected_facts"]:
-    if not contains_fact(answer, fact):
-        facts_ok = False
-```
+Does the generated answer contain the expected factual content? Every expected fact must appear in the answer (see `contains_fact()` in [`evals.py`](evals.py)).
 
 **Example:** A question about coverage targets must mention "85%", "4 months", "100%", and "9 months" — the specific thresholds from the document.
 
@@ -537,12 +442,7 @@ Update the cases in `evals.py` to match your documents. Don't commit confidentia
 
 ### Dependencies
 
-```
-chromadb>=0.5.0
-sentence-transformers>=2.2.0
-anthropic>=0.120.2
-openai>=1.0.0
-```
+See [`requirements.txt`](requirements.txt) (runtime) and [`requirements-dev.txt`](requirements-dev.txt) (adds pytest). Each package has an upper bound on its major version so a breaking release can't reach CI unannounced; Dependabot opens PRs for updates.
 
 ## License
 
