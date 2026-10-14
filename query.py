@@ -61,8 +61,13 @@ class RAGEngine:
         self.collection = self.client.get_collection(COLLECTION_NAME)
         self.embedder = SentenceTransformer(EMBED_MODEL)
 
-    def retrieve(self, query: str, n_results: int = N_RESULTS) -> list[dict]:
-        """Embed the query and retrieve the top-k matching chunks."""
+    def retrieve(self, query: str, n_results: int = N_RESULTS,
+                 max_distance: float | None = None) -> list[dict]:
+        """Embed the query and retrieve the top-k matching chunks.
+
+        If max_distance is set, chunks with a cosine distance above it
+        (i.e. less similar) are dropped.
+        """
         query_embedding = self.embedder.encode([query]).tolist()[0]
 
         results = self.collection.query(
@@ -81,12 +86,16 @@ class RAGEngine:
                 "section": meta.get("section", ""),
                 "distance": results["distances"][0][i] if "distances" in results else None,
             })
+        if max_distance is not None:
+            chunks = [c for c in chunks
+                      if c["distance"] is not None and c["distance"] <= max_distance]
         return chunks
 
     def answer(self, query: str, n_results: int = N_RESULTS,
-               verbose: bool = False) -> tuple[str, list[dict]]:
+               verbose: bool = False,
+               max_distance: float | None = None) -> tuple[str, list[dict]]:
         """Retrieve relevant chunks and generate an answer via the configured LLM."""
-        chunks = self.retrieve(query, n_results=n_results)
+        chunks = self.retrieve(query, n_results=n_results, max_distance=max_distance)
 
         if not chunks:
             return "No relevant documents found.", chunks
@@ -106,8 +115,8 @@ class RAGEngine:
             print(f"RETRIEVED CHUNKS ({len(chunks)}):")
             print(f"{'='*60}")
             for i, c in enumerate(chunks):
-                print(f"\n--- Chunk {i+1} (source: {c['source']}, "
-                      f"dist: {c['distance']:.4f}) ---")
+                dist = f"{c['distance']:.4f}" if c["distance"] is not None else "n/a"
+                print(f"\n--- Chunk {i+1} (source: {c['source']}, dist: {dist}) ---")
                 print(c["text"][:400])
                 if len(c["text"]) > 400:
                     print("... (truncated)")
@@ -119,6 +128,11 @@ class RAGEngine:
     def _call_llm(self, query: str, context: str) -> str:
         """Send the prompt to the configured LLM provider."""
         provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
+        if provider not in PROVIDER_DEFAULT_MODELS:
+            raise ValueError(
+                f"Unknown LLM provider {provider!r}; "
+                f"expected one of {sorted(PROVIDER_DEFAULT_MODELS)}"
+            )
         model = os.environ.get("LLM_MODEL", "")
         if not model:
             model = PROVIDER_DEFAULT_MODELS.get(provider, DEFAULT_MODEL)
@@ -149,7 +163,7 @@ Context:
                 return "The model declined to answer this question."
             # content may start with thinking blocks; join the text blocks
             return "".join(b.text for b in response.content if b.type == "text")
-        else:  # deepseek (OpenAI-compatible)
+        else:  # provider == "deepseek" (OpenAI-compatible)
             from openai import OpenAI
             client = OpenAI(
                 base_url="https://api.deepseek.com",
@@ -176,8 +190,11 @@ def main() -> None:
     parser.add_argument("--n-results", type=int, default=N_RESULTS,
                         help=f"Number of chunks to retrieve (default: {N_RESULTS})")
     parser.add_argument("--persist-dir", default=PERSIST_DIR)
+    parser.add_argument("--max-distance", type=float, default=None,
+                        help="Drop chunks with cosine distance above this (default: no cutoff)")
     parser.add_argument("--provider", default=None,
-                        help="LLM provider (anthropic or deepseek). Overrides LLM_PROVIDER env var.")
+                        choices=sorted(PROVIDER_DEFAULT_MODELS),
+                        help="LLM provider. Overrides LLM_PROVIDER env var.")
     parser.add_argument("--model", default=None,
                         help="Model name. Overrides LLM_MODEL env var.")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -190,6 +207,10 @@ def main() -> None:
     if args.model:
         os.environ["LLM_MODEL"] = args.model
 
+    provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
+    if provider not in PROVIDER_DEFAULT_MODELS:
+        parser.error(f"LLM_PROVIDER={provider!r} is not one of {sorted(PROVIDER_DEFAULT_MODELS)}")
+
     engine = RAGEngine(persist_dir=args.persist_dir)
 
     if args.query:
@@ -197,11 +218,11 @@ def main() -> None:
             args.query,
             n_results=args.n_results,
             verbose=args.verbose,
+            max_distance=args.max_distance,
         )
         print(f"\nAnswer:\n{answer}")
     else:
         # Interactive REPL
-        provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
         model = os.environ.get("LLM_MODEL", "") or PROVIDER_DEFAULT_MODELS.get(provider, DEFAULT_MODEL)
         print(f"RAG observability query — Provider: {provider}, Model: {model} — type 'quit' to exit.\n")
         while True:
@@ -216,6 +237,7 @@ def main() -> None:
                 continue
             answer, chunks = engine.answer(
                 q, n_results=args.n_results, verbose=args.verbose,
+                max_distance=args.max_distance,
             )
             print(f"A: {answer}\n")
 
