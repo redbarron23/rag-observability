@@ -205,7 +205,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | Variable | Purpose | Default |
 |---|---|---|
 | `LLM_PROVIDER` | LLM provider (`anthropic` or `deepseek`) | `anthropic` |
-| `LLM_MODEL` | Model name (provider-specific) | `claude-sonnet-4-6` or `deepseek-chat` |
+| `LLM_MODEL` | Model name (provider-specific) | `claude-sonnet-5-5` or `deepseek-chat` |
 | `DEEPSEEK_API_KEY` | API key for DeepSeek | required for `deepseek` |
 | `ANTHROPIC_API_KEY` | API key for Claude | required for `anthropic` |
 
@@ -331,17 +331,17 @@ The provider is determined by (in priority order):
 
 ```python
 DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 PROVIDER_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-5-5",
     "deepseek": "deepseek-chat",
 }
 ```
 
 ### Anthropic path
 
-Uses `anthropic.Anthropic().messages.create()` with the `system` parameter for the system prompt.
+Uses `anthropic.Anthropic().beta.messages.create()` with the `system` parameter for the system prompt and `max_tokens=16000`, since Sonnet 5.5 always thinks and thinking counts against the limit. Server-side refusal fallback is enabled (`fallbacks="default"`), and the answer is built from the response's text blocks, skipping thinking blocks.
 
 ### DeepSeek path (OpenAI-compatible)
 
@@ -535,7 +535,7 @@ Update the cases in `evals.py` to match your documents. Don't commit confidentia
 ```
 chromadb>=0.5.0
 sentence-transformers>=2.2.0
-anthropic>=0.50.0
+anthropic>=0.120.2
 openai>=1.0.0
 ```
 

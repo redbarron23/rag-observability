@@ -29,10 +29,10 @@ N_RESULTS = 6
 EMBED_MODEL = "all-MiniLM-L6-v2"
 
 DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 PROVIDER_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-5-5",
     "deepseek": "deepseek-chat",
 }
 
@@ -134,13 +134,21 @@ Context:
         if provider == "anthropic":
             import anthropic
             client = anthropic.Anthropic()
-            response = client.messages.create(
+            # Sonnet 5.5 always thinks, and thinking counts against max_tokens,
+            # so leave headroom. On a safety refusal, the server retries on a
+            # fallback model ("default" routing by refusal category).
+            response = client.beta.messages.create(
                 model=model,
-                max_tokens=1024,
+                max_tokens=16000,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",
             )
-            return response.content[0].text
+            if response.stop_reason == "refusal":
+                return "The model declined to answer this question."
+            # content may start with thinking blocks; join the text blocks
+            return "".join(b.text for b in response.content if b.type == "text")
         else:  # deepseek (OpenAI-compatible)
             from openai import OpenAI
             client = OpenAI(
