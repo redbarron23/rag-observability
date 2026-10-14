@@ -10,13 +10,14 @@ for known questions over the observability corpus.  Runs in two modes:
 
   Mode 2 — Full (--with-llm):
       Also asks the configured LLM to generate an answer and checks that the
-      answer contains expected facts AND cites the correct source.
+      answer contains the expected facts.  An LLM error counts as a failure.
 
 The retrieval-only mode is fast, free, and catches most regressions.
 Use --with-llm for the full attribution + fact-presence check.
 """
 
 import argparse
+import re
 import sys
 
 from query import N_RESULTS, RAGEngine
@@ -86,6 +87,13 @@ EVALS = [
 ]
 
 
+def contains_fact(answer: str, fact: str) -> bool:
+    """Case-insensitive match that must start at a word boundary, so that
+    "4 months" doesn't match "14 months" and "5%" doesn't match "85%".
+    The end is left open so "SLO" still matches "SLOs"."""
+    return re.search(r"(?<!\w)" + re.escape(fact), answer, re.IGNORECASE) is not None
+
+
 RETRIEVE_N = 6  # number of chunks to retrieve for source-attribution checks
 
 
@@ -138,7 +146,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
                 ev["question"], n_results=N_RESULTS, verbose=False,
             )
         except Exception as e:
-            print(f"[SKIP] {ev['id']} — LLM error: {e}")
+            print(f"[FAIL] {ev['id']} — LLM error: {e}")
+            failed += 1
             continue
 
         # Check 1: source attribution in retrieved chunks
@@ -152,7 +161,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         facts_ok = True
         missing_facts = []
         for fact in ev["expected_facts"]:
-            if fact.lower() not in answer.lower():
+            if not contains_fact(answer, fact):
                 facts_ok = False
                 missing_facts.append(fact)
 

@@ -122,7 +122,8 @@ def main() -> None:
     all_chunks: list[dict] = []
     for doc in docs:
         chunks = chunk_text_simple(doc["text"], args.chunk_size)
-        for c in chunks:
+        for i, c in enumerate(chunks):
+            c["index"] = i
             c["source"] = doc["rel_path"]
             c["source_file"] = doc["filename"]
             c["source_path"] = doc["path"]
@@ -146,7 +147,9 @@ def main() -> None:
         for c in all_chunks
     ]
 
-    ids = [f"chunk-{i:04d}" for i in range(len(all_chunks))]
+    # IDs are stable per document, so editing one file doesn't renumber
+    # every chunk after it (e.g. "reference/coverage-targets.md#2")
+    ids = [f"{c['source']}#{c['index']}" for c in all_chunks]
 
     print(f"Embedding {len(texts)} chunks...")
     embeddings = embedder.encode(texts, show_progress_bar=True).tolist()
