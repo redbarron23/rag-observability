@@ -100,13 +100,13 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
                                      │ chunk_text_simple(text, chunk_size) │
                                      │                                     │
                                      │ Groups paragraphs into chunks of    │
-                                     │ ~600 chars each.  Each chunk gets   │
+                                     │ ~500 chars each.  Each chunk gets   │
                                      │ a heading breadcrumb so it's        │
                                      │ self-contained when retrieved:      │
                                      │                                     │
                                      │   "Coverage Targets > Tier 1        │
                                      │                                     │
-                                     │    The Tier 1 target is 90%..."     │
+                                     │    The Tier 1 target is 85%..."     │
                                      └────────┬────────────────────────────┘
                                               │
                                               ▼
@@ -238,12 +238,12 @@ def _section_context() -> str:
 When the parser hits a `## Tier 1` heading, it updates the stack and flushes any in-progress chunk:
 
 ```python
-heading_match = re.match(r"^(#{2,4})\s+(.+)", line)
+heading_match = re.match(r"^(#{1,4})\s+(.+)", line)
 if heading_match:
     _flush()  # save current chunk
     level = len(heading_match.group(1))  # 2 for ##
     title = heading_match.group(2).strip()
-    # Update stack depth: ## -> depth 1, ### -> depth 2
+    # Update stack depth: # -> depth 0, ## -> depth 1, ### -> depth 2
     target = level - 1
     while len(heading_stack) > target:
         heading_stack.pop()
@@ -266,7 +266,7 @@ This avoids the common RAG pitfall of chunks that start or end mid-sentence, whi
 
 ### No overlap
 
-The simpler `chunk_text_simple()` function (which is actually used — `chunk_text()` is dead code) has no character overlap between chunks. The heading breadcrumb provides enough context that overlap isn't needed.
+`chunk_text_simple()` has no character overlap between chunks. The heading breadcrumb provides enough context that overlap isn't needed.
 
 ---
 
@@ -288,7 +288,7 @@ The model is downloaded once on first run and cached locally (that's the `HF_TOK
 `RAGEngine.retrieve()` in `query.py`:
 
 ```python
-def retrieve(self, query: str, n_results: int = 4) -> list[dict]:
+def retrieve(self, query: str, n_results: int = N_RESULTS) -> list[dict]:  # N_RESULTS = 6
     # 1. Embed the question with the same model used for ingestion
     query_embedding = self.embedder.encode([query]).tolist()[0]
 
@@ -324,15 +324,15 @@ The distance score (cosine similarity) is available but not used for filtering �
 The provider is determined by (in priority order):
 1. `--provider` CLI flag
 2. `LLM_PROVIDER` environment variable
-3. Default: `anthropic`
+3. Default: `deepseek`
 
 ```python
-DEFAULT_PROVIDER = "anthropic"
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_PROVIDER = "deepseek"
+DEFAULT_MODEL = "deepseek-chat"
 
 PROVIDER_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-4-6",
     "deepseek": "deepseek-chat",
+    "anthropic": "claude-sonnet-4-6",
 }
 ```
 
@@ -354,6 +354,9 @@ If the context does not contain enough information to answer, say so clearly.
 
 For every factual claim, cite the source document and section in parentheses.
 Be concise and precise — this is technical infrastructure knowledge.
+
+Citation format:
+    "<claim> (source: <document>.md, section '<Section>')."
 
 Do NOT use any external knowledge. Stick strictly to what the retrieved
 chunks contain."""
@@ -386,6 +389,8 @@ Context:
 
 Did the RAG system retrieve chunks from the correct document(s)?
 
+This checks the retrieved chunks' metadata, not the citations written in the answer text.
+
 ```python
 sources_ok = all(
     expected in str(retrieved_sources)
@@ -405,11 +410,11 @@ for fact in ev["expected_facts"]:
         facts_ok = False
 ```
 
-**Example:** A question about coverage targets must mention "90%", "6 months", "100%", and "12 months" — the specific thresholds from the document.
+**Example:** A question about coverage targets must mention "85%", "4 months", "100%", and "9 months" — the specific thresholds from the document.
 
 ### Why both checks?
 
-Most RAG evals only check retrieval recall (did we get the right chunks?). But a system that retrieves the right document and then hallucinates a wrong answer still fails in production. Conversely, a system that gets the facts right but cites the wrong source is also broken — attribution errors erode user trust.
+Most RAG evals only check retrieval recall (did we get the right chunks?). But a system that retrieves the right document and then hallucinates a wrong answer still fails in production. Conversely, a system that gets the facts right but retrieved them from the wrong document is also broken — attribution errors erode user trust.
 
 The dual check catches both failure modes:
 

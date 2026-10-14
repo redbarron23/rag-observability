@@ -10,7 +10,7 @@ for known questions over the observability corpus.  Runs in two modes:
 
   Mode 2 — Full (--with-llm):
       Also asks the configured LLM to generate an answer and checks that the
-      answer contains expected facts AND cites the correct source.
+      answer contains the expected facts.  An LLM error counts as a failure.
 
 The retrieval-only mode is fast, free, and catches most regressions.
 Use --with-llm for the full attribution + fact-presence check.
@@ -138,7 +138,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
                 ev["question"], n_results=N_RESULTS, verbose=False,
             )
         except Exception as e:
-            print(f"[SKIP] {ev['id']} — LLM error: {e}")
+            print(f"[FAIL] {ev['id']} — LLM error: {e}")
+            failed += 1
             continue
 
         # Check 1: source attribution in retrieved chunks

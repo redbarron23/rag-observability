@@ -44,9 +44,8 @@ If the context does not contain enough information to answer, say so clearly.
 For every factual claim, cite the source document and section in parentheses.
 Be concise and precise — this is technical infrastructure knowledge.
 
-Example:
-    "The production Tier 1 coverage target is 90% within 6 months and 100%
-    within 12 months (source: coverage-targets.md, section 'Tier 1')."
+Citation format:
+    "<claim> (source: <document>.md, section '<Section>')."
 
 Do NOT use any external knowledge. Stick strictly to what the retrieved
 chunks contain."""
