@@ -45,15 +45,15 @@ flowchart LR
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Set your API key (DeepSeek is default)
-export DEEPSEEK_API_KEY=sk-...
-# Or for Claude:
-# export ANTHROPIC_API_KEY=sk-...
+# 2. Set your API key (Anthropic is default)
+export ANTHROPIC_API_KEY=sk-ant-...
+# Or for DeepSeek:
+# export DEEPSEEK_API_KEY=sk-...
 
 # 3. Ingest — reads data/*.md, chunks, embeds, stores in local ChromaDB
 python ingest.py
 
-# 4. Ask questions (default provider: DeepSeek; see Environment variables)
+# 4. Ask questions (default provider: Anthropic; see Environment variables)
 python query.py "What are the coverage targets for Azure production?"
 
 # 5. Or use DeepSeek instead
@@ -69,6 +69,9 @@ python query.py
 
 # 8. Run evals (retrieval only — no API key needed)
 python evals.py
+
+# Full evals (default provider: Anthropic)
+python evals.py --with-llm
 
 # Full evals with DeepSeek
 LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
@@ -169,7 +172,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
              │
              ▼
     ┌───────────────────────────────────────────────┐
-    │ LLM (DeepSeek by default)                    │
+    │ LLM (Claude by default)                      │
     │                                               │
     │ Prompt: "Answer using ONLY this context.      │
     │          Cite source and section for each     │
@@ -201,8 +204,8 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `LLM_PROVIDER` | LLM provider (`deepseek` or `anthropic`) | `deepseek` |
-| `LLM_MODEL` | Model name (provider-specific) | `deepseek-chat` or `claude-sonnet-4-6` |
+| `LLM_PROVIDER` | LLM provider (`anthropic` or `deepseek`) | `anthropic` |
+| `LLM_MODEL` | Model name (provider-specific) | `claude-sonnet-4-6` or `deepseek-chat` |
 | `DEEPSEEK_API_KEY` | API key for DeepSeek | required for `deepseek` |
 | `ANTHROPIC_API_KEY` | API key for Claude | required for `anthropic` |
 
@@ -324,15 +327,15 @@ The distance score (cosine similarity) is available but not used for filtering �
 The provider is determined by (in priority order):
 1. `--provider` CLI flag
 2. `LLM_PROVIDER` environment variable
-3. Default: `deepseek`
+3. Default: `anthropic`
 
 ```python
-DEFAULT_PROVIDER = "deepseek"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_PROVIDER = "anthropic"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 PROVIDER_DEFAULT_MODELS = {
-    "deepseek": "deepseek-chat",
     "anthropic": "claude-sonnet-4-6",
+    "deepseek": "deepseek-chat",
 }
 ```
 
@@ -524,8 +527,8 @@ Update the cases in `evals.py` to match your documents. Don't commit confidentia
 
 - Python 3.10+
 - For generation, one of (retrieval and evals need no key):
-  - `DEEPSEEK_API_KEY` for DeepSeek (default provider)
-  - `ANTHROPIC_API_KEY` for Claude
+  - `ANTHROPIC_API_KEY` for Claude (default provider)
+  - `DEEPSEEK_API_KEY` for DeepSeek
 
 ### Dependencies
 

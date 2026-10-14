@@ -10,7 +10,7 @@ Usage
 This retrieves the top-k relevant chunks from Chroma, then asks an LLM
 to answer the question using ONLY those chunks as sources (cited).
 
-Default provider is DeepSeek. Set LLM_PROVIDER=anthropic to use Claude.
+Default provider is Anthropic (Claude). Set LLM_PROVIDER=deepseek to use DeepSeek.
 """
 
 import argparse
@@ -28,12 +28,12 @@ COLLECTION_NAME = "observability-docs"
 N_RESULTS = 6
 EMBED_MODEL = "all-MiniLM-L6-v2"
 
-DEFAULT_PROVIDER = "deepseek"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_PROVIDER = "anthropic"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 PROVIDER_DEFAULT_MODELS = {
-    "deepseek": "deepseek-chat",
     "anthropic": "claude-sonnet-4-6",
+    "deepseek": "deepseek-chat",
 }
 
 SYSTEM_PROMPT = """You are an observability domain expert assistant.
