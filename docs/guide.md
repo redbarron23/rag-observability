@@ -238,6 +238,8 @@ Headings `#` to `####` are tracked as a stack: a new heading flushes the chunk i
 
 Documents are split on paragraph boundaries (blank lines), not mid-sentence. Paragraphs are added to the current chunk until the next one would push it past `--chunk-size` (default 500 characters); then the chunk is flushed and a new one starts. A single paragraph longer than the limit becomes its own chunk rather than being cut.
 
+Wrapped lines stay in the same paragraph. The size target counts body text and paragraph separators; heading breadcrumbs are added outside that target.
+
 This avoids the common RAG pitfall of chunks that start or end mid-sentence, which confuse the LLM.
 
 ### No overlap
@@ -308,6 +310,8 @@ The user message repeats the "only this context, cite each claim" instruction, t
 ## Evaluation strategy
 
 `evals.py` tests 10 answerable queries against known ground truth in the sample corpus, plus 4 questions the corpus can't answer. Answerable cases check **three dimensions:**
+
+Provider errors fail the case and are reported separately. Dimension scores count only evaluated cases, with skipped cases shown as unevaluated; a provider failure never counts as a quality pass. For example, if every provider call fails, sources are reported as `0/0 (10 unevaluated)` and the command exits nonzero.
 
 ### Dimension 1: Source attribution
 
