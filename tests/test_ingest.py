@@ -46,6 +46,32 @@ def test_small_chunk_size_creates_more_chunks():
     assert len(chunk_text_simple(text, 100)) > len(chunk_text_simple(text, 5000))
 
 
+def test_wrapped_paragraph_stays_intact():
+    paragraph = "alpha " * 10 + "\n" + "beta " * 10
+    chunks = chunk_text_simple(f"# Root\n\n{paragraph}\n\nNext paragraph.", 70)
+    assert chunks == [
+        {"text": f"Root\n\n{paragraph.strip()}", "section": "Root"},
+        {"text": "Root\n\nNext paragraph.", "section": "Root"},
+    ]
+
+
+def test_skipped_heading_levels_keep_siblings_and_parents():
+    text = "# Root\n### First\none\n### Second\ntwo\n#### Detail\nthree\n## Other\nfour"
+    chunks = chunk_text_simple(text, 500)
+    assert [c["text"] for c in chunks] == [
+        "Root > First\n\none",
+        "Root > Second\n\ntwo",
+        "Root > Second > Detail\n\nthree",
+        "Root > Other\n\nfour",
+    ]
+    assert [c["section"] for c in chunks] == ["First", "Second", "Detail", "Other"]
+
+
+def test_paragraph_separators_count_toward_chunk_size():
+    chunks = chunk_text_simple("abc\n\ndef", 6)
+    assert [c["text"] for c in chunks] == ["abc", "def"]
+
+
 def test_load_documents_skips_stubs_and_uses_relative_paths(tmp_path):
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "real.md").write_text("# Real\n\n" + "content " * 20)
