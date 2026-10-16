@@ -6,6 +6,7 @@ from time import perf_counter
 import streamlit as st
 from chromadb.errors import NotFoundError
 
+from ingest import ingest_documents, save_uploaded_documents
 from query import (
     DEFAULT_PROVIDER,
     MAX_DISTANCE,
@@ -39,6 +40,33 @@ with st.sidebar:
     provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
     model = os.environ.get("LLM_MODEL") or PROVIDER_DEFAULT_MODELS.get(provider, "unknown")
     st.caption(f"Answer provider: {provider} · Model: {model}")
+    with st.form("upload_documents"):
+        st.subheader("Add documents")
+        uploads = st.file_uploader(
+            "Markdown files", type=["md"], accept_multiple_files=True, max_upload_size=5,
+        )
+        st.caption(
+            "UTF-8 Markdown, at least 50 characters, up to 5 MB per file. "
+            "Existing files are not overwritten. Saves locally and rebuilds the selected "
+            "index from data/, including prior uploads."
+        )
+        upload_and_index = st.form_submit_button("Upload and index")
+
+if upload_and_index:
+    saved = False
+    try:
+        with st.spinner("Saving documents and rebuilding the local index…"):
+            paths = save_uploaded_documents([(upload.name, upload.getvalue()) for upload in uploads])
+            saved = True
+            load_engine.clear()
+            st.session_state.pop("result", None)
+            count = ingest_documents(persist_dir=persist_dir)
+        st.success(f"Saved {len(paths)} document(s) locally. Indexed {count} chunks; ready to search.")
+    except Exception as exc:  # noqa: BLE001 — report validation, disk, and indexing failures in the UI
+        if saved:
+            st.error(f"Documents were saved, but indexing failed: {exc}. Retry Upload and index.")
+        else:
+            st.error(f"Upload failed: {exc}")
 
 st.caption(
     "Find sources runs locally. Generate answer sends retrieved text to the configured "
