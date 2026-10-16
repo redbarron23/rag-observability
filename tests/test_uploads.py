@@ -23,6 +23,10 @@ DOCUMENT = b"# Database Runbook\n\n## Latency\n\nCheck slow queries and database
     ("file.md", b"\x00" * 60),
     ("file.md", b"# " + b"heading" * 10),
     ("file.md", b"x" * (5 * 1024 * 1024 + 1)),
+], ids=[
+    "parent-path", "absolute-path", "nested-path", "windows-path", "null-byte-name",
+    "long-name", "wrong-extension", "short-document", "non-utf8", "null-byte-content",
+    "heading-only", "oversized",
 ])
 def test_invalid_batch_writes_nothing(tmp_path, name, content):
     with pytest.raises(ValueError):
