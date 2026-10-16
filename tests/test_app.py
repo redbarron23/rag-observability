@@ -102,3 +102,55 @@ def test_reload_index_recreates_cached_engine(ui):
     assert not app.expander
     submit(app, "Find sources")
     assert factory.call_count == 2
+
+
+def test_upload_indexes_documents_and_reloads_engine(ui, monkeypatch, tmp_path):
+    from ingest import save_uploaded_documents
+
+    app, _, factory = ui
+    submit(app, "Find sources")
+    monkeypatch.setattr(
+        "ingest.save_uploaded_documents",
+        lambda files: save_uploaded_documents(files, str(tmp_path)),
+    )
+    runner = Mock(return_value=42)
+    monkeypatch.setattr("ingest.ingest_documents", runner)
+    app.file_uploader[0].set_value([
+        ("runbook.md", b"# Runbook\n\n" + b"Check database latency and slow queries. " * 3, "text/markdown"),
+    ])
+    submit(app, "Upload and index")
+    runner.assert_called_once_with(persist_dir="chroma_db")
+    assert len(list(tmp_path.rglob("runbook.md"))) == 1
+    assert "Indexed 42 chunks" in app.success[0].value
+    assert not app.expander
+    submit(app, "Find sources")
+    assert factory.call_count == 2
+
+
+def test_empty_upload_does_not_rebuild_index(ui, monkeypatch):
+    app, _, _ = ui
+    runner = Mock()
+    monkeypatch.setattr("ingest.ingest_documents", runner)
+    submit(app, "Upload and index")
+    assert "Choose at least one" in app.error[0].value
+    runner.assert_not_called()
+
+
+def test_indexing_failure_keeps_saved_upload_and_clears_stale_results(ui, monkeypatch, tmp_path):
+    from ingest import save_uploaded_documents
+
+    app, _, _ = ui
+    submit(app, "Find sources")
+    monkeypatch.setattr(
+        "ingest.save_uploaded_documents",
+        lambda files: save_uploaded_documents(files, str(tmp_path)),
+    )
+    monkeypatch.setattr("ingest.ingest_documents", Mock(side_effect=RuntimeError("disk full")))
+    app.file_uploader[0].set_value([
+        ("runbook.md", b"# Runbook\n\n" + b"Check database latency and slow queries. " * 3, "text/markdown"),
+    ])
+    submit(app, "Upload and index")
+    assert "Documents were saved, but indexing failed" in app.error[0].value
+    assert len(list(tmp_path.rglob("runbook.md"))) == 1
+    assert not app.success
+    assert not app.expander

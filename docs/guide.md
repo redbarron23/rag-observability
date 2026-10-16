@@ -427,20 +427,43 @@ python evals.py --with-llm
 
 `data/` ships with a small **fictional** sample corpus (a made-up "Contoso Cloud" observability programme) so the project runs out of the box and CI can verify retrieval. `chroma_db/` is generated from it and is in `.gitignore`.
 
-To use your own documents:
+### Add documents in the web interface
+
+1. Open **Add documents** in the sidebar.
+2. Choose one or more Markdown (`.md`) files, encoded as UTF-8. Each file must have at least 50 characters of usable text and be no larger than 5 MB. Empty or heading-only documents are rejected.
+3. Click **Upload and index**. This saves files locally under `data/uploads/<content hash>/<filename>.md` and rebuilds the selected index from the entire `data/` folder, including the sample corpus and all prior uploads.
+4. Wait for the success message, then click **Find sources** with a question about your document. The engine is reloaded automatically.
+
+Uploads are excluded from Git. An identical file uploaded again reuses its saved path; different content with the same filename is saved separately, so old versions are not silently overwritten or removed. To retire an old version, remove its saved file from `data/uploads/`, rebuild with `python ingest.py`, and click **Reload index**. Uploading and embedding run locally; **Generate answer** sends retrieved text to the configured provider.
+
+If indexing fails, saved documents remain available for a retry; the UI reports the failure instead of claiming they are searchable. The current ingestion process rebuilds the collection in place: a failure during the database write can leave the index unavailable until a successful retry. Uploads rebuild from `data/`; if you previously indexed another source directory into the selected index, its documents must also be present in `data/` to be retained. The interface is for a local user, not concurrent document administration.
+
+### Add documents from the command line
+
+Place `.md` files anywhere under `data/`; subfolders are read recursively. Files shorter than 50 characters after trimming are skipped. Use `#` through `####` headings for useful section breadcrumbs, for example:
+
+```markdown
+# Database Latency Runbook
+
+## Investigation
+
+Check slow queries, connection pool usage, and database CPU before escalating.
+
+## Escalation
+
+Contact the database owning team if latency persists.
+```
+
+Then rebuild and query:
 
 ```bash
-# Replace the sample corpus with your markdown files (any directory structure)
-rm -r data && cp -r /path/to/docs data
-
-# Re-ingest (safe to re-run; the collection is rebuilt each time)
 python ingest.py
-
-# Query
 python query.py "Your question here"
 ```
 
-Update the cases in `evals.py` to match your documents. Don't commit confidential documents to a public repo.
+In the web interface, click **Reload index** after a command-line rebuild. For an entirely separate corpus, use `python ingest.py --data-dir /path/to/docs --persist-dir /path/to/index` and choose that index directory in the UI; its upload button still rebuilds from `data/` as described above. PDF and HTML are not supported.
+
+Add questions and expected source/section pairs in `evals.py` for your documents. Existing cases target the sample corpus, so replacing it requires corresponding eval changes. Additional documents can change retrieval rankings even when the samples remain. Don't commit confidential documents to a public repo; only the UI upload folder is excluded automatically.
 
 ---
 

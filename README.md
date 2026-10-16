@@ -48,6 +48,14 @@ distance cutoff in the sidebar. **Generate answer** uses the same `LLM_PROVIDER`
 and provider API-key environment variables as the CLI. Set them before starting Streamlit.
 Each question is independent; earlier questions are not sent as conversation history.
 
+To add documents, use **Add documents** in the sidebar: choose one or more `.md` files,
+then click **Upload and index**. Files must be UTF-8 text with at least 50 characters of
+usable content, up to 5 MB each. Uploads are saved under `data/uploads/` (excluded from Git).
+The selected index is rebuilt from all documents in `data/`, including existing uploads,
+and the cached engine is cleared automatically. Different contents with the same filename
+are kept separately; identical re-uploads reuse the saved file. See [data handling](docs/guide.md#data-handling)
+for command-line ingestion, document structure, and rebuild limitations.
+
 After re-ingesting documents, click **Reload index** to reload the cached engine.
 The launch command disables file watching to avoid inspecting the model libraries; restart
 the app after editing its Python code.
