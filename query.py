@@ -24,6 +24,11 @@ from sentence_transformers import SentenceTransformer
 PERSIST_DIR = "chroma_db"
 COLLECTION_NAME = "observability-docs"
 N_RESULTS = 6
+# Cosine distance above which a chunk is dropped. On the sample corpus every
+# answerable eval question has a relevant chunk within 0.34, and unanswerable
+# questions have nothing closer than 0.65. Cosine distance tops out at 2, so
+# --max-distance 2 turns the cutoff off.
+MAX_DISTANCE = 0.6
 EMBED_MODEL = "all-MiniLM-L6-v2"
 
 DEFAULT_PROVIDER = "anthropic"
@@ -60,11 +65,11 @@ class RAGEngine:
         self.embedder = SentenceTransformer(EMBED_MODEL)
 
     def retrieve(self, query: str, n_results: int = N_RESULTS,
-                 max_distance: float | None = None) -> list[dict]:
+                 max_distance: float | None = MAX_DISTANCE) -> list[dict]:
         """Embed the query and retrieve the top-k matching chunks.
 
-        If max_distance is set, chunks with a cosine distance above it
-        (i.e. less similar) are dropped.
+        Chunks with a cosine distance above max_distance (i.e. less similar)
+        are dropped; pass None to keep all top-k.
         """
         query_embedding = self.embedder.encode([query]).tolist()[0]
 
@@ -91,7 +96,7 @@ class RAGEngine:
 
     def answer(self, query: str, n_results: int = N_RESULTS,
                verbose: bool = False,
-               max_distance: float | None = None) -> tuple[str, list[dict]]:
+               max_distance: float | None = MAX_DISTANCE) -> tuple[str, list[dict]]:
         """Retrieve relevant chunks and generate an answer via the configured LLM."""
         chunks = self.retrieve(query, n_results=n_results, max_distance=max_distance)
 
@@ -188,8 +193,9 @@ def main() -> None:
     parser.add_argument("--n-results", type=int, default=N_RESULTS,
                         help=f"Number of chunks to retrieve (default: {N_RESULTS})")
     parser.add_argument("--persist-dir", default=PERSIST_DIR)
-    parser.add_argument("--max-distance", type=float, default=None,
-                        help="Drop chunks with cosine distance above this (default: no cutoff)")
+    parser.add_argument("--max-distance", type=float, default=MAX_DISTANCE,
+                        help="Drop chunks with cosine distance above this "
+                             f"(default: {MAX_DISTANCE}; 2 disables the cutoff)")
     parser.add_argument("--provider", default=None,
                         choices=sorted(PROVIDER_DEFAULT_MODELS),
                         help="LLM provider. Overrides LLM_PROVIDER env var.")
