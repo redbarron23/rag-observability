@@ -194,6 +194,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 |---|---|
 | `ingest.py` | One-shot ingestion pipeline: load → chunk → embed → store |
 | `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()` and `answer()` |
+| `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `evals.py` | 10 answerable and 4 unanswerable cases: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
 | `tests/` | Unit tests for loading, chunking, provider validation and eval fact matching (`pytest`) |
 | `.github/workflows/ci.yml` | CI: lint (`ruff check`), unit tests, ingest sample corpus, retrieval evals |
@@ -317,9 +318,15 @@ Provider errors fail the case and are reported separately. Dimension scores coun
 
 Did the RAG system retrieve chunks from the correct document(s)?
 
-This checks the retrieved chunks' metadata, not the citations written in the answer text. A case passes when every expected source appears among the top-6 retrieved chunks.
+This checks the retrieved chunks' metadata, not the citations written in the answer text. Document attribution passes when every expected source appears among the top-6 retrieved chunks. It is reported separately from supporting-section recall.
 
 **Example:** A question about tagging standards should return chunks from `tagging-standard.md`, not from `observability_framework.md`.
+
+Retrieval-only evals also require the actual supporting sections. Each answerable case has an `expected_sections` list of exact `(source path, section name)` pairs, reviewed against the sample documents. All listed sections are required: onboarding needs both `Prerequisites` and `Onboarding steps`, while the tracing case needs `Latency investigation` and `Dependency mapping` to support its expected facts. These labels define the minimum evidence for the benchmark answer, rather than every potentially useful section.
+
+Supporting-section recall at ranks 1, 3 and 6 is the number of required sections found within that cutoff divided by the total required sections across answerable cases. A question needing two sections contributes two to the denominator. Any chunk with the matching source and section can satisfy a requirement; duplicate chunks count only once, at their earliest rank. Matching a section name in another document does not count.
+
+An answerable retrieval case passes only when document attribution passes and every required section appears in the top six. Lower cutoffs are diagnostic, not additional pass thresholds. Each case reports its first relevant rank (1-based, after the distance cutoff); `--verbose` and failed cases show every required section's rank or `missing`. If nothing is relevant, the first relevant rank is `missing`.
 
 Retrieval for an unanswerable question passes when the distance cutoff drops every chunk.
 
@@ -373,12 +380,12 @@ Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-ve
 
 | Mode | Cases | Passed |
 |---|---|---|
-| Retrieval (source attribution + cutoff), no API key | 14 | 14 (100%) |
+| Retrieval (document attribution + supporting sections + cutoff), no API key | 14 | 14 (100%) |
 | Full, generation with DeepSeek (facts, citations, declines) | 14 | 14 (100%) |
 
 Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
-Retrieval-only evals run in CI and exit non-zero on any failure. All 14 pass locally (top-6 retrieval, 0.6 cutoff).
+Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 14 pass locally (top-6 retrieval, 0.6 cutoff). Document attribution is 10/10 answerable cases; supporting-section recall is 8/13 at rank 1, 12/13 at rank 3, and 13/13 at rank 6. These section metrics exclude the four unanswerable cases, which are scored by rejection instead. The full-generation result above is the earlier DeepSeek run; generation was not rerun for the section-check change.
 
 ---
 

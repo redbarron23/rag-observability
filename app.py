@@ -1,0 +1,101 @@
+"""Local document explorer. Run with: streamlit run app.py"""
+
+import os
+from time import perf_counter
+
+import streamlit as st
+from chromadb.errors import NotFoundError
+
+from query import (
+    DEFAULT_PROVIDER,
+    MAX_DISTANCE,
+    N_RESULTS,
+    PERSIST_DIR,
+    PROVIDER_DEFAULT_MODELS,
+    RAGEngine,
+)
+
+
+@st.cache_resource
+def load_engine(persist_dir: str) -> RAGEngine:
+    return RAGEngine(persist_dir=persist_dir)
+
+
+st.set_page_config(page_title="rag-observability", page_icon="🔎", layout="wide")
+st.title("Observability document explorer")
+st.caption("Ask a question, inspect the evidence, and optionally generate a cited answer.")
+
+with st.sidebar:
+    st.header("Retrieval settings")
+    persist_dir = st.text_input("Index directory", value=PERSIST_DIR)
+    n_results = st.slider("Maximum chunks", min_value=1, max_value=12, value=N_RESULTS)
+    max_distance = st.slider(
+        "Maximum distance", min_value=0.0, max_value=2.0, value=MAX_DISTANCE, step=0.05,
+        help="Lower distances mean closer matches. Set 2 to keep every retrieved chunk.",
+    )
+    if st.button("Reload index"):
+        load_engine.clear()
+        st.session_state.pop("result", None)
+    provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
+    model = os.environ.get("LLM_MODEL") or PROVIDER_DEFAULT_MODELS.get(provider, "unknown")
+    st.caption(f"Answer provider: {provider} · Model: {model}")
+
+st.caption(
+    "Find sources runs locally. Generate answer sends retrieved text to the configured "
+    "provider and may incur charges. The bundled documents are fictional."
+)
+with st.form("question"):
+    question = st.text_area(
+        "Question", value="What is the coverage target for Tier 1 production resources?",
+    )
+    find_sources = st.form_submit_button("Find sources", type="primary")
+    generate = st.form_submit_button("Generate answer")
+
+if find_sources or generate:
+    st.session_state.pop("result", None)
+    if not question.strip():
+        st.error("Enter a question first.")
+    else:
+        try:
+            with st.spinner("Searching documents…" if find_sources else "Generating answer…"):
+                engine = load_engine(persist_dir)
+                started = perf_counter()
+                if generate:
+                    answer, chunks = engine.answer(
+                        question.strip(), n_results=n_results, max_distance=max_distance,
+                    )
+                else:
+                    chunks = engine.retrieve(
+                        question.strip(), n_results=n_results, max_distance=max_distance,
+                    )
+                    answer = None
+                st.session_state.result = {
+                    "question": question.strip(), "answer": answer, "chunks": chunks,
+                    "seconds": perf_counter() - started,
+                    "n_results": n_results, "max_distance": max_distance,
+                }
+        except NotFoundError:
+            st.error("Index not found. Run python ingest.py for the selected index directory first.")
+        except Exception as exc:  # noqa: BLE001 — keep query failures visible without crashing the app
+            st.error(f"Query failed: {exc}")
+
+if result := st.session_state.get("result"):
+    st.subheader(result["question"])
+    st.caption(
+        f"{len(result['chunks'])} chunks · {result['seconds']:.2f}s "
+        f"(excludes initial model loading) · top {result['n_results']} "
+        f"· distance ≤ {result['max_distance']:g}"
+    )
+    if result["answer"] is not None:
+        st.markdown(result["answer"])
+    if not result["chunks"]:
+        st.info("No relevant documents found. Try rephrasing or adjusting retrieval settings.")
+    else:
+        st.subheader("Retrieved evidence")
+        for rank, chunk in enumerate(result["chunks"], start=1):
+            distance = chunk["distance"]
+            label = f"{rank}. {chunk['source']} — {chunk['section'] or 'Untitled section'}"
+            if distance is not None:
+                label += f" · distance {distance:.3f}"
+            with st.expander(label, expanded=rank == 1):
+                st.text(chunk["text"])

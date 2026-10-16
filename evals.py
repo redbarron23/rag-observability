@@ -6,8 +6,8 @@ for known questions over the observability corpus, and declines
 questions the corpus can't answer.  Runs in two modes:
 
   Mode 1 — Retrieval-only (default):
-      Checks that the correct source documents appear in the top-N
-      retrieved chunks, and that nothing survives the distance cutoff
+      Checks that the correct documents and supporting sections appear in
+      the top-N retrieved chunks, and that nothing survives the distance cutoff
       for unanswerable questions.  No LLM API key required.
 
   Mode 2 — Full (--with-llm):
@@ -31,60 +31,79 @@ EVALS = [
         "id": "coverage-targets-tier1",
         "question": "What is the coverage target for Tier 1 production resources?",
         "expected_sources": ["reference/coverage-targets.md"],
+        "expected_sections": [("reference/coverage-targets.md", "Tier 1")],
         "expected_facts": ["85%", "4 months", "100%", "9 months"],
     },
     {
         "id": "coverage-targets-gcp",
         "question": "What is the current GCP coverage level and what is the interim target?",
         "expected_sources": ["reference/coverage-targets.md"],
+        "expected_sections": [("reference/coverage-targets.md", "Current status")],
         "expected_facts": ["0.47%", "40%"],
     },
     {
         "id": "framework-scoring",
         "question": "How does the observability framework scoring model work?",
         "expected_sources": ["architecture/observability_framework.md"],
+        "expected_sections": [("architecture/observability_framework.md", "Scoring model")],
         "expected_facts": ["Missing", "Basic", "Good", "Excellent"],
     },
     {
         "id": "framework-categories",
         "question": "What categories are assessed in the observability framework?",
         "expected_sources": ["architecture/observability_framework.md"],
+        "expected_sections": [("architecture/observability_framework.md", "Categories")],
         "expected_facts": ["Metrics", "Logs", "Traces", "Alerts", "SLO", "Ownership"],
     },
     {
         "id": "gcp-azure-metrics-differences",
         "question": "How does GCP metric collection differ from Azure in terms of OpenTelemetry support and native agents?",
         "expected_sources": ["reference/gcp-azure-metrics-comparison.md"],
+        "expected_sections": [
+            ("reference/gcp-azure-metrics-comparison.md", "OpenTelemetry support"),
+            ("reference/gcp-azure-metrics-comparison.md", "Native agents"),
+        ],
         "expected_facts": ["Ops Agent", "Azure Monitor Agent"],
     },
     {
         "id": "tagging-standard",
         "question": "What is the resource tagging standard?",
         "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Required tags")],
         "expected_facts": ["owner", "cost-centre", "environment"],
     },
     {
         "id": "tracing-use-cases",
         "question": "What are some use cases for distributed tracing?",
         "expected_sources": ["architecture/observability_tracing_use_cases.md"],
+        "expected_sections": [
+            ("architecture/observability_tracing_use_cases.md", "Latency investigation"),
+            ("architecture/observability_tracing_use_cases.md", "Dependency mapping"),
+        ],
         "expected_facts": ["dependency", "latency"],
     },
     {
         "id": "data-first-approach",
         "question": "How does the data-first approach avoid unnecessary cloud API calls by checking data freshness first?",
         "expected_sources": ["data-first-approach.md"],
+        "expected_sections": [("data-first-approach.md", "Freshness check")],
         "expected_facts": ["6 hours"],
     },
     {
         "id": "observability-setup",
         "question": "According to the observability setup primer, what are the prerequisites and steps for onboarding a new service?",
         "expected_sources": ["observability-setup-primer.md"],
+        "expected_sections": [
+            ("observability-setup-primer.md", "Prerequisites"),
+            ("observability-setup-primer.md", "Onboarding steps"),
+        ],
         "expected_facts": ["owning team", "SLO"],
     },
     {
         "id": "cost-smoothing",
         "question": "What is the cost smoothing plan for Log Analytics?",
         "expected_sources": ["programme/COST_SMOOTHING.md"],
+        "expected_sections": [("programme/COST_SMOOTHING.md", "Plan")],
         "expected_facts": ["20%", "three waves"],
     },
 ]
@@ -179,15 +198,28 @@ def citation_problems(answer: str, retrieved_sources: set[str],
     return problems
 
 
-RETRIEVE_N = 6  # number of chunks to retrieve for source-attribution checks
+RETRIEVE_N = 6  # number of chunks to retrieve for document and section checks
+
+
+def supporting_section_ranks(chunks: list[dict],
+                             expected_sections: list[tuple[str, str]]) -> list[int | None]:
+    """First 1-based rank for each required source/section, or None if absent."""
+    return [
+        next((rank for rank, chunk in enumerate(chunks, start=1)
+              if (chunk["source"], chunk.get("section")) == (source, section)), None)
+        for source, section in expected_sections
+    ]
 
 
 def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     """Run retrieval-only evals — no LLM API call needed."""
     passed = 0
     failed = 0
+    source_passed = 0
+    section_hits = dict.fromkeys((1, 3, RETRIEVE_N), 0)
+    section_total = 0
 
-    print(f"Retrieval evals (source attribution in top-{RETRIEVE_N} retrieved chunks)")
+    print(f"Retrieval evals (documents and supporting sections in top-{RETRIEVE_N})")
     print("=" * 60)
 
     for ev in EVALS:
@@ -196,23 +228,38 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
 
         # Check that all expected sources appear in the retrieved set
         expected = ev["expected_sources"]
-        found = [s for s in expected if any(s in r for r in retrieved_sources)]
-        missing = [s for s in expected if s not in found]
-        ok = len(missing) == 0
+        missing = [s for s in expected if s not in retrieved_sources]
+        sources_ok = not missing
+        source_passed += sources_ok
+        ranks = supporting_section_ranks(chunks, ev["expected_sections"])
+        section_total += len(ranks)
+        for cutoff in section_hits:
+            section_hits[cutoff] += sum(rank is not None and rank <= cutoff for rank in ranks)
+        sections_ok = all(rank is not None and rank <= RETRIEVE_N for rank in ranks)
+        first_rank = min((rank for rank in ranks if rank is not None), default=None)
+        ok = sources_ok and sections_ok
 
         status = "PASS" if ok else "FAIL"
-        print(f"[{status}] {ev['id']}")
+        print(f"[{status}] {ev['id']}  sources={'ok' if sources_ok else 'FAIL'} "
+              f"sections={'ok' if sections_ok else 'FAIL'} "
+              f"first relevant rank={first_rank if first_rank is not None else 'missing'}")
 
         if not ok or verbose:
             print(f"       Q: {ev['question']}")
             print(f"       Retrieved: {', '.join(sorted(retrieved_sources))}")
             if missing:
-                print(f"       Missing: {missing}")
+                print(f"       Missing sources: {missing}")
+            for (source, section), rank in zip(ev["expected_sections"], ranks, strict=True):
+                print(f"       {source} / {section}: rank {rank if rank is not None else 'missing'}")
 
         if ok:
             passed += 1
         else:
             failed += 1
+
+    print(f"\nDocument attribution: {source_passed}/{len(EVALS)} cases")
+    print("Supporting-section recall: " + ", ".join(
+        f"@{cutoff} {hits}/{section_total}" for cutoff, hits in section_hits.items()))
 
     # Unanswerable questions: nothing should survive the distance cutoff
     for ev in UNANSWERABLE_EVALS:
