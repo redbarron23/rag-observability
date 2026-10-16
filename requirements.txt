@@ -3,4 +3,4 @@
 chromadb>=1.5.9,<2
 sentence-transformers>=6.1.0,<7
 anthropic>=1.13.0,<2
-openai>=1.59,<2
+openai>=3.29.0,<4
