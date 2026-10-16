@@ -2,5 +2,5 @@
 # Dependabot (.github/dependabot.yml) proposes bumps as PRs.
 chromadb>=1.5,<2
 sentence-transformers>=5.0,<6
-anthropic>=0.120.2,<1
+anthropic>=1.13.0,<2
 openai>=1.59,<2
