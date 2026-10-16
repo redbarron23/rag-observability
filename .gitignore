@@ -24,3 +24,6 @@ Thumbs.db
 # Chroma persistence
 chroma_db/
 
+# Documents uploaded through the local UI
+data/uploads/
+

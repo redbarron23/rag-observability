@@ -13,6 +13,7 @@ import argparse
 import os
 import re
 import sys
+from hashlib import sha256
 from pathlib import Path
 
 import chromadb
@@ -49,14 +50,15 @@ def chunk_text_simple(text: str, chunk_size: int) -> list[dict]:
     in the current chunk or starts a new one. No mid-paragraph splits.
     """
     lines = text.split("\n")
-    heading_stack: list[str] = []
+    heading_stack: list[tuple[int, str]] = []
     chunks: list[dict] = []
+    paragraph_lines: list[str] = []
     current_paragraphs: list[str] = []
     current_len = 0
 
     def _section_context() -> str:
         """Build a breadcrumb like 'Coverage Targets > Tier 1'."""
-        return " > ".join(h for h in heading_stack if h) if heading_stack else ""
+        return " > ".join(title for _, title in heading_stack)
 
     def _flush() -> None:
         nonlocal current_paragraphs, current_len
@@ -67,61 +69,91 @@ def chunk_text_simple(text: str, chunk_size: int) -> list[dict]:
         full = f"{ctx}\n\n{body}" if ctx else body
         chunks.append({
             "text": full.strip(),
-            "section": heading_stack[-1] if heading_stack else "",
+            "section": heading_stack[-1][1] if heading_stack else "",
         })
         current_paragraphs = []
         current_len = 0
 
+    def _add_paragraph() -> None:
+        nonlocal current_len
+        if not paragraph_lines:
+            return
+        paragraph = "\n".join(paragraph_lines).strip()
+        separator_len = 2 if current_paragraphs else 0
+        if current_paragraphs and current_len + separator_len + len(paragraph) > chunk_size:
+            _flush()
+            separator_len = 0
+        current_paragraphs.append(paragraph)
+        current_len += separator_len + len(paragraph)
+        paragraph_lines.clear()
+
     for line in lines:
         heading_match = re.match(r"^(#{1,4})\s+(.+)", line)
         if heading_match:
+            _add_paragraph()
             _flush()
             level = len(heading_match.group(1))
             title = heading_match.group(2).strip()
-            target = level - 1  # # -> depth 0, ## -> depth 1, ### -> depth 2
-            while len(heading_stack) > target:
+            while heading_stack and heading_stack[-1][0] >= level:
                 heading_stack.pop()
-            heading_stack.append(title)
+            heading_stack.append((level, title))
             continue
 
-        stripped = line.strip()
-        if not stripped:
-            # blank line — paragraph boundary, keep going
-            continue
+        if line.strip():
+            paragraph_lines.append(line)
+        else:
+            _add_paragraph()
 
-        para_len = len(stripped)
-
-        # If adding this paragraph would exceed chunk_size, flush first
-        if current_len + para_len > chunk_size and current_paragraphs:
-            _flush()
-
-        current_paragraphs.append(stripped)
-        current_len += para_len
-
+    _add_paragraph()
     _flush()
     return chunks
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest docs into Chroma")
-    parser.add_argument("--data-dir", default="data", help="Path to markdown files")
-    parser.add_argument("--persist-dir", default="chroma_db",
-                        help="Chroma persistence directory")
-    parser.add_argument("--chunk-size", type=int, default=500,
-                        help="Target chunk size in characters")
-    args = parser.parse_args()
+def save_uploaded_documents(files: list[tuple[str, bytes]], data_dir: str = "data") -> list[Path]:
+    """Validate the whole batch, then save Markdown without replacing existing files."""
+    if not files:
+        raise ValueError("Choose at least one Markdown file.")
+    validated = []
+    for name, content in files:
+        if (Path(name).name != name or "/" in name or "\\" in name
+                or "\x00" in name or len(name.encode("utf-8")) > 255
+                or Path(name).suffix.lower() != ".md"):
+            raise ValueError("Each upload must have a plain filename ending in .md.")
+        if len(content) > 5 * 1024 * 1024:
+            raise ValueError(f"{name}: maximum file size is 5 MB.")
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"{name}: save the document as UTF-8 text.") from exc
+        if "\x00" in text or len(text.strip()) < 50 or not chunk_text_simple(text, 500):
+            raise ValueError(f"{name}: include at least 50 characters of usable Markdown text.")
+        path = Path(data_dir) / "uploads" / sha256(content).hexdigest() / (Path(name).stem + ".md")
+        validated.append((path, text.encode("utf-8")))
+    for path, content in validated:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with path.open("xb") as target:
+                target.write(content)
+        except FileExistsError:
+            if path.read_bytes() != content:
+                raise ValueError(f"{path.name}: an existing upload has different contents.") from None
+    return [path for path, _ in validated]
+
+
+def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
+                     chunk_size: int = 500) -> int:
+    """Rebuild the index from Markdown and return the number of stored chunks."""
 
     # ── Load documents ───────────────────────────────────────────
-    docs = load_documents(args.data_dir)
+    docs = load_documents(data_dir)
     if not docs:
-        print(f"No markdown files found in {args.data_dir}/")
-        sys.exit(1)
-    print(f"Loaded {len(docs)} documents from {args.data_dir}/")
+        raise ValueError(f"No markdown files found in {data_dir}/")
+    print(f"Loaded {len(docs)} documents from {data_dir}/")
 
     # ── Chunk ────────────────────────────────────────────────────
     all_chunks: list[dict] = []
     for doc in docs:
-        chunks = chunk_text_simple(doc["text"], args.chunk_size)
+        chunks = chunk_text_simple(doc["text"], chunk_size)
         for i, c in enumerate(chunks):
             c["index"] = i
             c["source"] = doc["rel_path"]
@@ -131,6 +163,8 @@ def main() -> None:
         print(f"  {doc['rel_path']}: {len(chunks)} chunks")
 
     print(f"\nTotal chunks: {len(all_chunks)}")
+    if not all_chunks:
+        raise ValueError("No usable document text found; the index was not changed.")
 
     # ── Embed and store ─────────────────────────────────────────
     from sentence_transformers import SentenceTransformer
@@ -154,9 +188,9 @@ def main() -> None:
     print(f"Embedding {len(texts)} chunks...")
     embeddings = embedder.encode(texts, show_progress_bar=True).tolist()
 
-    print(f"Storing in Chroma at {args.persist_dir}/")
-    os.makedirs(args.persist_dir, exist_ok=True)
-    client = chromadb.PersistentClient(path=args.persist_dir)
+    print(f"Storing in Chroma at {persist_dir}/")
+    os.makedirs(persist_dir, exist_ok=True)
+    client = chromadb.PersistentClient(path=persist_dir)
 
     # Rebuild from scratch so re-running ingest never hits duplicate IDs
     try:
@@ -182,6 +216,22 @@ def main() -> None:
     print("─" * 50)
     print(texts[0][:500])
     print("─" * 50)
+    return len(all_chunks)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Ingest docs into Chroma")
+    parser.add_argument("--data-dir", default="data", help="Path to markdown files")
+    parser.add_argument("--persist-dir", default="chroma_db",
+                        help="Chroma persistence directory")
+    parser.add_argument("--chunk-size", type=int, default=500,
+                        help="Target chunk size in characters")
+    args = parser.parse_args()
+    try:
+        ingest_documents(args.data_dir, args.persist_dir, args.chunk_size)
+    except ValueError as exc:
+        print(exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
