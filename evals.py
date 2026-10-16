@@ -240,6 +240,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     passed = 0
     failed = 0
     dimension_failures = {"sources": 0, "facts": 0, "citations": 0, "declines": 0}
+    answerable_errors = 0
+    unanswerable_errors = 0
 
     print("\nFull evals (retrieval + LLM answer + fact presence + citations)")
     print("=" * 60)
@@ -252,6 +254,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         except Exception as e:  # noqa: BLE001 — any provider/SDK error fails the case
             print(f"[FAIL] {ev['id']} — LLM error: {e}")
             failed += 1
+            answerable_errors += 1
             continue
 
         # Check 1: source attribution in retrieved chunks
@@ -307,6 +310,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         except Exception as e:  # noqa: BLE001 — any provider/SDK error fails the case
             print(f"[FAIL] {ev['id']} — LLM error: {e}")
             failed += 1
+            unanswerable_errors += 1
             continue
 
         ok = is_decline(answer)
@@ -326,8 +330,12 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
 
     totals = {"sources": len(EVALS), "facts": len(EVALS), "citations": len(EVALS),
               "declines": len(UNANSWERABLE_EVALS)}
+    unevaluated = {"sources": answerable_errors, "facts": answerable_errors,
+                   "citations": answerable_errors, "declines": unanswerable_errors}
+    print(f"\nProvider errors: {answerable_errors + unanswerable_errors}/{passed + failed}")
     print("\nBy dimension: " + ", ".join(
-        f"{name} {totals[name] - dimension_failures[name]}/{totals[name]}"
+        f"{name} {totals[name] - unevaluated[name] - dimension_failures[name]}/"
+        f"{totals[name] - unevaluated[name]} ({unevaluated[name]} unevaluated)"
         for name in totals))
 
     return passed, failed

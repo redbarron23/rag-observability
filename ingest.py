@@ -49,14 +49,15 @@ def chunk_text_simple(text: str, chunk_size: int) -> list[dict]:
     in the current chunk or starts a new one. No mid-paragraph splits.
     """
     lines = text.split("\n")
-    heading_stack: list[str] = []
+    heading_stack: list[tuple[int, str]] = []
     chunks: list[dict] = []
+    paragraph_lines: list[str] = []
     current_paragraphs: list[str] = []
     current_len = 0
 
     def _section_context() -> str:
         """Build a breadcrumb like 'Coverage Targets > Tier 1'."""
-        return " > ".join(h for h in heading_stack if h) if heading_stack else ""
+        return " > ".join(title for _, title in heading_stack)
 
     def _flush() -> None:
         nonlocal current_paragraphs, current_len
@@ -67,37 +68,42 @@ def chunk_text_simple(text: str, chunk_size: int) -> list[dict]:
         full = f"{ctx}\n\n{body}" if ctx else body
         chunks.append({
             "text": full.strip(),
-            "section": heading_stack[-1] if heading_stack else "",
+            "section": heading_stack[-1][1] if heading_stack else "",
         })
         current_paragraphs = []
         current_len = 0
 
+    def _add_paragraph() -> None:
+        nonlocal current_len
+        if not paragraph_lines:
+            return
+        paragraph = "\n".join(paragraph_lines).strip()
+        separator_len = 2 if current_paragraphs else 0
+        if current_paragraphs and current_len + separator_len + len(paragraph) > chunk_size:
+            _flush()
+            separator_len = 0
+        current_paragraphs.append(paragraph)
+        current_len += separator_len + len(paragraph)
+        paragraph_lines.clear()
+
     for line in lines:
         heading_match = re.match(r"^(#{1,4})\s+(.+)", line)
         if heading_match:
+            _add_paragraph()
             _flush()
             level = len(heading_match.group(1))
             title = heading_match.group(2).strip()
-            target = level - 1  # # -> depth 0, ## -> depth 1, ### -> depth 2
-            while len(heading_stack) > target:
+            while heading_stack and heading_stack[-1][0] >= level:
                 heading_stack.pop()
-            heading_stack.append(title)
+            heading_stack.append((level, title))
             continue
 
-        stripped = line.strip()
-        if not stripped:
-            # blank line — paragraph boundary, keep going
-            continue
+        if line.strip():
+            paragraph_lines.append(line)
+        else:
+            _add_paragraph()
 
-        para_len = len(stripped)
-
-        # If adding this paragraph would exceed chunk_size, flush first
-        if current_len + para_len > chunk_size and current_paragraphs:
-            _flush()
-
-        current_paragraphs.append(stripped)
-        current_len += para_len
-
+    _add_paragraph()
     _flush()
     return chunks
 
