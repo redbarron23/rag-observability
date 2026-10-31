@@ -15,6 +15,7 @@ Default provider is Anthropic (Claude). Set LLM_PROVIDER=deepseek to use DeepSee
 
 import argparse
 import os
+from pathlib import Path
 
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -61,7 +62,11 @@ class RAGEngine:
 
     def __init__(self, persist_dir: str = PERSIST_DIR):
         self.client = chromadb.PersistentClient(path=persist_dir)
-        self.collection = self.client.get_collection(COLLECTION_NAME)
+        try:
+            name = (Path(persist_dir) / "active-collection").read_text(encoding="utf-8")
+        except FileNotFoundError:
+            name = COLLECTION_NAME  # indexes created before replacement switching
+        self.collection = self.client.get_collection(name)
         self.embedder = SentenceTransformer(EMBED_MODEL)
 
     def retrieve(self, query: str, n_results: int = N_RESULTS,

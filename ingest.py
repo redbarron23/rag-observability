@@ -15,9 +15,9 @@ import re
 import sys
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 import chromadb
-from chromadb.errors import NotFoundError
 
 
 def load_documents(data_dir: str) -> list[dict]:
@@ -192,13 +192,10 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     os.makedirs(persist_dir, exist_ok=True)
     client = chromadb.PersistentClient(path=persist_dir)
 
-    # Rebuild from scratch so re-running ingest never hits duplicate IDs
-    try:
-        client.delete_collection("observability-docs")
-    except NotFoundError:
-        pass  # collection did not exist yet
+    # Keep readers on the previous collection until the replacement is complete.
+    name = f"observability-docs-{uuid4().hex}"
     collection = client.create_collection(
-        name="observability-docs",
+        name=name,
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -208,8 +205,18 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
         documents=texts,
         metadatas=metadatas,
     )
+    if collection.count() != len(ids):
+        raise RuntimeError("Incomplete replacement index; the active index was not changed.")
 
-    print(f"Done — {len(all_chunks)} chunks in collection 'observability-docs'")
+    pointer = Path(persist_dir) / "active-collection"
+    pending = pointer.with_name(f".{name}.tmp")
+    try:
+        pending.write_text(name, encoding="utf-8")
+        os.replace(pending, pointer)
+    finally:
+        pending.unlink(missing_ok=True)
+
+    print(f"Done — {len(all_chunks)} chunks in collection '{name}'")
 
     # Print a sample chunk for verification
     print("\nSample chunk:")

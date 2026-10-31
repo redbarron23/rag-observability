@@ -70,6 +70,7 @@ def test_shared_ingestion_stores_uploads_with_source_and_section(tmp_path, monke
     embedder.encode.return_value.tolist.return_value = [[0.1, 0.2]]
     monkeypatch.setattr("sentence_transformers.SentenceTransformer", Mock(return_value=embedder))
     client = Mock()
+    client.create_collection.return_value.count.return_value = 1
     monkeypatch.setattr(ingest.chromadb, "PersistentClient", Mock(return_value=client))
     assert ingest_documents(str(tmp_path), str(tmp_path / "index")) == 1
     stored = client.create_collection.return_value.add.call_args.kwargs
