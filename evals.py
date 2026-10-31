@@ -213,14 +213,20 @@ def same_document(a: str, b: str) -> bool:
 
 
 def citation_problems(answer: str, retrieved_sources: set[str],
-                      expected_sources: list[str]) -> list[str]:
+                      expected_sources: list[str],
+                      citations: list[dict] | None = None) -> list[str]:
     """Return what's wrong with the answer's citations; empty if they're fine.
 
+    Uses the structured citations when the provider returned them (Anthropic),
+    otherwise parses the citations written in the answer text (DeepSeek).
     Fails when the answer cites nothing, cites a document that wasn't
     retrieved (so the citation can't be backed by the context), or never
     cites the document the answer should come from.
     """
-    cited = cited_sources(answer)
+    if citations is not None:
+        cited = {c["source"] for c in citations}
+    else:
+        cited = cited_sources(answer)
     if not cited:
         return ["no citations"]
     problems = []
@@ -332,7 +338,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
 
     for ev in EVALS:
         try:
-            answer, chunks = engine.answer(
+            answer, chunks, citations = engine.answer_with_citations(
                 ev["question"], n_results=N_RESULTS, verbose=False,
             )
         except Exception as e:  # noqa: BLE001 — any provider/SDK error fails the case
@@ -352,8 +358,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         missing_facts = [f for f in ev["expected_facts"] if not contains_fact(answer, f)]
         facts_ok = not missing_facts
 
-        # Check 3: the citations the model wrote
-        bad_citations = citation_problems(answer, retrieved_sources, expected)
+        # Check 3: the answer's citations (structured when the provider has them)
+        bad_citations = citation_problems(answer, retrieved_sources, expected, citations)
         citations_ok = not bad_citations
 
         dimension_failures["sources"] += not sources_ok

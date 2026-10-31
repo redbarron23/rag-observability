@@ -79,7 +79,7 @@ def test_unknown_provider_is_rejected(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "antropic")
     engine = object.__new__(RAGEngine)  # skip loading Chroma and the embedder
     with pytest.raises(ValueError, match="Unknown LLM provider 'antropic'"):
-        engine._call_llm("question", "context")
+        engine._call_llm("question", [])
 
 
 @pytest.mark.parametrize("error_questions, source_score, decline_score, totals", [
@@ -112,6 +112,9 @@ def test_full_eval_summary_separates_errors_from_evaluated_checks(
             if question == "decline-pass":
                 return "No relevant documents found.", []
             return "An unsupported guess.", []
+
+        def answer_with_citations(self, question, **kwargs):
+            return (*self.answer(question, **kwargs), None)  # prompt-written citations
 
     assert evals.run_full_evals(Engine(), verbose=False) == totals
     output = capsys.readouterr().out
