@@ -193,7 +193,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | File | Purpose |
 |---|---|
 | `ingest.py` | One-shot ingestion pipeline: load → chunk → embed → store |
-| `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()` and `answer()` |
+| `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()`, `answer()` and `answer_with_citations()` |
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `evals.py` | 15 answerable and 4 unanswerable cases: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
 | `tests/` | Unit tests for loading, chunking, provider validation and eval fact matching (`pytest`) |
@@ -301,22 +301,26 @@ Each provider has a default model (`claude-sonnet-5-5` for Anthropic, `deepseek-
 
 ### Anthropic path
 
-Uses `anthropic.Anthropic().beta.messages.create()` with the `system` parameter for the system prompt and `max_tokens=16000`, since Sonnet 5.5 always thinks and thinking counts against the limit. Server-side refusal fallback is enabled (`fallbacks="default"`), and the answer is built from the response's text blocks, skipping thinking blocks.
+Uses `anthropic.Anthropic().beta.messages.create()` with the `system` parameter for the system prompt and `max_tokens=16000`, since Sonnet 5.5 always thinks and thinking counts against the limit. Server-side refusal fallback is enabled (`fallbacks="default"`).
+
+The Anthropic path uses Claude's native citations instead of asking the model to write them. Each retrieved chunk is sent as a plain-text `document` content block with `citations: {"enabled": true}` and a title of `<source>, section '<Section>'`, followed by the question as a text block. The response arrives split into text blocks (thinking blocks are skipped); each cited block carries citations giving the exact cited text and the index of the document it came from. `_call_anthropic()` maps each citation back to its chunk's source and section, and appends a `(source: <document>.md, section '<Section>')` marker after each cited block, so the answer looks the same as a prompt-cited one in the CLI and the web interface.
+
+`RAGEngine.answer_with_citations()` returns `(answer, chunks, citations)`, where each citation is a dict with `source`, `section`, `chunk` (1-based rank) and `cited_text`. `citations` is `None` for DeepSeek. `answer()` keeps returning `(answer, chunks)`. The CLI prints a numbered **Citations** list with the quoted text after an Anthropic answer.
 
 ### DeepSeek path (OpenAI-compatible)
 
-Uses `openai.OpenAI()` pointed at `https://api.deepseek.com`. The system prompt is injected as the first `{"role": "system"}` message in the messages array (OpenAI convention).
+Uses `openai.OpenAI()` pointed at `https://api.deepseek.com`. The system prompt is injected as the first `{"role": "system"}` message in the messages array (OpenAI convention). DeepSeek has no native citations, so it keeps the prompt-based citations described below.
 
-### System prompt (same for both providers)
+### System prompts
 
-`SYSTEM_PROMPT` in [`query.py`](../query.py) is shared by both providers. It casts the model as an observability expert, tells it to answer only from the provided context (and to say so when the context isn't enough), and requires a citation for every factual claim in the form `(source: <document>.md, section '<Section>')`.
+`SYSTEM_PROMPT` in [`query.py`](../query.py) is used for DeepSeek. It casts the model as an observability expert, tells it to answer only from the provided context (and to say so when the context isn't enough), and requires a citation for every factual claim in the form `(source: <document>.md, section '<Section>')`. `ANTHROPIC_SYSTEM_PROMPT` gives Claude the same instructions without the written citation format, since the API attaches citations itself.
 
 Three constraints enforced:
 1. **No external knowledge** — if it's not in the retrieved chunks, the model must say so
 2. **Citation required** — every factual claim must cite its source
 3. **Precision** — technical infrastructure docs need exact numbers and references
 
-### User prompt
+### User prompt (DeepSeek)
 
 The user message repeats the "only this context, cite each claim" instruction, then gives the question followed by the retrieved chunks. Each chunk is headed `[Chunk N] Source: <file>, Section: <section>` so the model can cite it.
 
@@ -354,7 +358,7 @@ Does the generated answer contain the expected factual content? Every expected f
 
 ### Dimension 3: Citations
 
-Dimension 1 checks what was retrieved; this checks what the model wrote. `citation_problems()` parses the `(source: X.md, section '…')` citations out of the answer and fails the case if there are none, if one names a document that wasn't retrieved, or if none names the expected source. The directory may be dropped (`coverage-targets.md` matches `reference/coverage-targets.md`). Cited sections aren't checked.
+Dimension 1 checks what was retrieved; this checks what the answer cites. On the Anthropic path, `citation_problems()` uses the structured citations returned by the API (the source of each cited document). For DeepSeek, it parses the `(source: X.md, section '…')` citations out of the answer text. Either way, it fails the case if there are no citations, if one names a document that wasn't retrieved, or if none names the expected source. For parsed citations, the directory may be dropped (`coverage-targets.md` matches `reference/coverage-targets.md`). Cited sections aren't checked.
 
 ### Unanswerable questions
 

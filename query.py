@@ -11,6 +11,8 @@ This retrieves the top-k relevant chunks from Chroma, then asks an LLM
 to answer the question using ONLY those chunks as sources (cited).
 
 Default provider is Anthropic (Claude). Set LLM_PROVIDER=deepseek to use DeepSeek.
+On the Anthropic path each chunk is sent as a document with Claude's native
+citations enabled; DeepSeek is prompted to write its citations in the answer.
 """
 
 import argparse
@@ -111,6 +113,45 @@ Citation format:
 
 Do NOT use any external knowledge. Stick strictly to what the retrieved
 chunks contain."""
+
+# Anthropic path: chunks arrive as documents with citations enabled, so the API
+# attaches structured citations and the prompt doesn't ask for written ones.
+ANTHROPIC_SYSTEM_PROMPT = """You are an observability domain expert assistant.
+
+You answer questions based ONLY on the provided documents.
+If the documents do not contain enough information to answer, say so clearly.
+
+Support every factual claim with a citation from the documents.
+Be concise and precise — this is technical infrastructure knowledge.
+
+Do NOT use any external knowledge. Stick strictly to what the documents contain."""
+
+
+# ── Citation display ───────────────────────────────────────────────────
+
+def chunk_title(chunk: dict) -> str:
+    """A chunk's source plus its section, when it has one."""
+    if chunk["section"]:
+        return f"{chunk['source']}, section '{chunk['section']}'"
+    return chunk["source"]
+
+
+def citation_marker(citations: list[dict]) -> str:
+    """Inline marker in the prompt-citation format, e.g.
+    " (source: a.md, section 'X'; source: b.md)"; empty if there are none."""
+    labels = dict.fromkeys(f"source: {chunk_title(c)}" for c in citations)
+    return f" ({'; '.join(labels)})" if labels else ""
+
+
+def format_citations(citations: list[dict]) -> str:
+    """Numbered list of structured citations with the quoted text, for the CLI."""
+    lines = []
+    for i, c in enumerate(citations, start=1):
+        quote = " ".join(c["cited_text"].split())
+        if len(quote) > 200:
+            quote = quote[:197] + "..."
+        lines.append(f"[{i}] {chunk_title(c)}: \"{quote}\"")
+    return "\n".join(lines)
 
 
 # ── RAG engine ─────────────────────────────────────────────────────────
@@ -221,6 +262,22 @@ class RAGEngine:
                verbose: bool = False,
                max_distance: float | None = MAX_DISTANCE) -> tuple[str, list[dict]]:
         """Retrieve relevant chunks and generate an answer via the configured LLM."""
+        answer, chunks, _ = self.answer_with_citations(
+            query, n_results=n_results, verbose=verbose, max_distance=max_distance,
+        )
+        return answer, chunks
+
+    def answer_with_citations(
+        self, query: str, n_results: int = N_RESULTS, verbose: bool = False,
+        max_distance: float | None = MAX_DISTANCE,
+    ) -> tuple[str, list[dict], list[dict] | None]:
+        """Like answer(), plus the answer's structured citations.
+
+        Each citation is a dict with the cited chunk's "source", "section" and
+        "chunk" (1-based rank) and the exact "cited_text". Citations are None
+        when the provider has no native citations (DeepSeek); the answer text
+        then carries the citations the model wrote.
+        """
         chunks = self.retrieve(query, n_results=n_results, max_distance=max_distance)
 
         if verbose:
@@ -233,17 +290,7 @@ class RAGEngine:
                 print("Corpus provenance unavailable; re-ingest to record it.")
 
         if not chunks:
-            return "No relevant documents found.", chunks
-
-        # Build context from retrieved chunks
-        context_parts = []
-        for i, c in enumerate(chunks):
-            header = f"[Chunk {i+1}] Source: {c['source']}"
-            if c["section"]:
-                header += f", Section: {c['section']}"
-            context_parts.append(f"{header}\n{c['text']}")
-
-        context = "\n\n---\n\n".join(context_parts)
+            return "No relevant documents found.", chunks, []
 
         if verbose:
             print(f"\n{'='*60}")
@@ -256,12 +303,15 @@ class RAGEngine:
                 if len(c["text"]) > 400:
                     print("... (truncated)")
 
-        # Call LLM
-        answer = self._call_llm(query, context)
-        return answer, chunks
+        answer, citations = self._call_llm(query, chunks)
+        return answer, chunks, citations
 
-    def _call_llm(self, query: str, context: str) -> str:
-        """Send the prompt to the configured LLM provider."""
+    def _call_llm(self, query: str, chunks: list[dict]) -> tuple[str, list[dict] | None]:
+        """Send the question and chunks to the configured LLM provider.
+
+        Returns the answer and its structured citations (None when the
+        provider has no native citations).
+        """
         provider = os.environ.get("LLM_PROVIDER", DEFAULT_PROVIDER)
         if provider not in PROVIDER_DEFAULT_MODELS:
             raise ValueError(
@@ -272,6 +322,17 @@ class RAGEngine:
         if not model:
             model = PROVIDER_DEFAULT_MODELS.get(provider, DEFAULT_MODEL)
 
+        if provider == "anthropic":
+            return self._call_anthropic(query, chunks, model)
+
+        # provider == "deepseek" (OpenAI-compatible): the prompt asks for
+        # citations written into the answer text.
+        context = "\n\n---\n\n".join(
+            f"[Chunk {i}] Source: {c['source']}"
+            + (f", Section: {c['section']}" if c["section"] else "")
+            + f"\n{c['text']}"
+            for i, c in enumerate(chunks, start=1)
+        )
         user_content = f"""Answer the following question using ONLY the context below.
 Cite the source document and section for each claim you make.
 
@@ -280,42 +341,89 @@ Question: {query}
 Context:
 {context}"""
 
-        if provider == "anthropic":
-            import anthropic
-            client = anthropic.Anthropic()
-            # Sonnet 5.5 always thinks, and thinking counts against max_tokens,
-            # so leave headroom. On a safety refusal, the server retries on a
-            # fallback model ("default" routing by refusal category).
-            response = client.beta.messages.create(
-                model=model,
-                max_tokens=16000,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_content}],
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
-            )
-            if response.stop_reason == "refusal":
-                return "The model declined to answer this question."
-            # content may start with thinking blocks; join the text blocks
-            return "".join(b.text for b in response.content if b.type == "text")
-        else:  # provider == "deepseek" (OpenAI-compatible)
-            from openai import OpenAI
-            client = OpenAI(
-                base_url="https://api.deepseek.com",
-                api_key=os.environ.get("DEEPSEEK_API_KEY"),
-            )
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=1024,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_content},
-                ],
-            )
-            return response.choices[0].message.content
+        from openai import OpenAI
+        client = OpenAI(
+            base_url="https://api.deepseek.com",
+            api_key=os.environ.get("DEEPSEEK_API_KEY"),
+        )
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=1024,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        return response.choices[0].message.content, None
+
+    @staticmethod
+    def _call_anthropic(query: str, chunks: list[dict],
+                        model: str) -> tuple[str, list[dict]]:
+        """Ask Claude with each chunk as a document with citations enabled.
+
+        Each cited span of the answer is followed by a "(source: …, section
+        '…')" marker, so it displays like a prompt-cited answer.
+        """
+        import anthropic
+        client = anthropic.Anthropic()
+        documents = [
+            {
+                "type": "document",
+                "source": {"type": "text", "media_type": "text/plain", "data": c["text"]},
+                "title": chunk_title(c),
+                "citations": {"enabled": True},
+            }
+            for c in chunks
+        ]
+        question = {
+            "type": "text",
+            "text": f"Answer this question using ONLY the documents above.\n\nQuestion: {query}",
+        }
+        # Sonnet 5.5 always thinks, and thinking counts against max_tokens,
+        # so leave headroom. On a safety refusal, the server retries on a
+        # fallback model ("default" routing by refusal category).
+        response = client.beta.messages.create(
+            model=model,
+            max_tokens=16000,
+            system=ANTHROPIC_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": [*documents, question]}],
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+        if response.stop_reason == "refusal":
+            return "The model declined to answer this question.", []
+
+        # content may start with thinking blocks; the answer arrives split into
+        # text blocks, and each cited block carries its own citations.
+        parts: list[str] = []
+        citations: list[dict] = []
+        for block in response.content:
+            if block.type != "text":
+                continue
+            block_citations = []
+            for cite in getattr(block, "citations", None) or []:
+                index = getattr(cite, "document_index", None)
+                if index is None or not 0 <= index < len(chunks):
+                    continue
+                block_citations.append({
+                    "source": chunks[index]["source"],
+                    "section": chunks[index]["section"],
+                    "chunk": index + 1,
+                    "cited_text": cite.cited_text,
+                })
+            parts.append(block.text + citation_marker(block_citations))
+            citations.extend(block_citations)
+        return "".join(parts), citations
 
 
 # ── CLI ────────────────────────────────────────────────────────────────
+
+def print_answer(answer: str, citations: list[dict] | None, prefix: str) -> None:
+    """Print the answer, then the quoted text behind each native citation."""
+    print(f"{prefix}{answer}")
+    if citations:
+        print(f"\nCitations:\n{format_citations(citations)}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -353,13 +461,13 @@ def main() -> None:
     engine = RAGEngine(persist_dir=args.persist_dir, retrieval=args.retrieval)
 
     if args.query:
-        answer, _ = engine.answer(
+        answer, _, citations = engine.answer_with_citations(
             args.query,
             n_results=args.n_results,
             verbose=args.verbose,
             max_distance=args.max_distance,
         )
-        print(f"\nAnswer:\n{answer}")
+        print_answer(answer, citations, "\nAnswer:\n")
     else:
         # Interactive REPL
         model = os.environ.get("LLM_MODEL", "") or PROVIDER_DEFAULT_MODELS.get(provider, DEFAULT_MODEL)
@@ -374,11 +482,12 @@ def main() -> None:
                 break
             if not q:
                 continue
-            answer, _ = engine.answer(
+            answer, _, citations = engine.answer_with_citations(
                 q, n_results=args.n_results, verbose=args.verbose,
                 max_distance=args.max_distance,
             )
-            print(f"A: {answer}\n")
+            print_answer(answer, citations, "A: ")
+            print()
 
 
 if __name__ == "__main__":
