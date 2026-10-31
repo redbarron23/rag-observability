@@ -79,6 +79,76 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 
 ---
 
+## HTTP API
+
+Install `requirements-api.txt`, ingest the corpus, then run
+`python -m uvicorn api:app --host 127.0.0.1 --port 8001` from this checkout.
+The HTTP interface uses the same `RAGEngine`, cutoff (including its exact-term margin), and provider
+configuration as the CLI. It does not modify documents, ingest uploads, or store conversations.
+
+Both endpoints accept a JSON object:
+
+```json
+{"question": "What tags are required?", "n_results": 6, "max_distance": 0.6}
+```
+
+`question` is required, trimmed, and limited to 4000 characters; blank questions are rejected.
+`n_results` defaults to 6 and must be an integer from 1 to 20. `max_distance` defaults to 0.6 and
+must be a finite number from 0 to 2. Unknown fields are rejected; clients cannot choose an arbitrary
+index path or provider through the request.
+
+| Endpoint | Response |
+| --- | --- |
+| `POST /retrieve` | `{"chunks": [...], "corpus": {...}}`; no generation call or provider key required |
+| `POST /ask` | `{"answer": "...", "chunks": [...], "citations": [...], "corpus": {...}}`; calls the configured generation provider when chunks are found |
+
+Each chunk contains `id`, `text`, `source`, `file`, `section`, and cosine `distance`.
+`corpus` contains `status: "available"`, `corpus_sha256`, `ingested_at`, and `embedding_model`.
+Legacy or invalid metadata produces `{"status": "unavailable"}` instead of invented provenance.
+The manifest's local source directory and full source-hash map are not returned.
+`citations` contains the engine's structured citations on the Anthropic path; it is `null` on
+DeepSeek, where source references are in the answer text. These are evidence for inspection, not
+a guarantee that every generated claim is correct.
+
+No matches is a successful `200` with `chunks: []`; `/ask` also returns "No relevant documents found."
+without calling a provider. Invalid requests return `422`. An unavailable index/model or failed
+retrieval returns `503` from `/retrieve`; `/ask` returns `503` for an unavailable engine/missing
+collection and `502` for other query/provider failures. Error responses use `{"detail": "..."}`
+without returning underlying exception messages. Local server logs may contain diagnostic exception
+details, so keep logs within the same private boundary as the corpus.
+
+For an obs-agent documentation-search tool, retrieve chunks and pass their text and source references
+to its existing agent loop rather than requesting a second generated answer:
+
+```python
+import json
+from urllib.request import Request, urlopen
+
+request = Request(
+    "http://127.0.0.1:8001/retrieve",
+    data=json.dumps({"question": "What tags are required?", "n_results": 3}).encode(),
+    headers={"Content-Type": "application/json"},
+)
+with urlopen(request, timeout=30) as response:
+    evidence = json.load(response)  # chunks plus indexed corpus identity
+```
+
+The engine and embedder load once at service startup. `RAG_PERSIST_DIR` selects the index directory
+(default `chroma_db`). Startup failure leaves requests returning `503`; ingest/fix the index or model,
+then restart the process. After any ingestion, restart before querying the replacement collection.
+There is no automatic reload or freshness scan per request: provenance identifies the **indexed**
+corpus, not whether local files have since changed. Use `python ingest.py --check` (with
+`--persist-dir` for a custom index) to detect changes, then ingest and restart. Avoid concurrent
+ingestion and API queries; the existing local rebuild/concurrency limits still apply.
+
+This service is for a trusted local user and has no authentication or document-level permissions.
+Keep the loopback binding. Before exposing private corpora to a network, place an authenticated
+gateway with TLS, request/rate limits, and appropriate corpus access controls in front of it; all
+authorized clients of one instance can retrieve its entire indexed corpus. `/ask` sends selected
+document text and the question to the configured provider and may incur charges. Only use documents
+approved for that destination. `/retrieve` runs local embeddings (the model may download on first
+startup). Neither endpoint configures cross-origin browser access or records query payloads itself.
+
 ## The RAG pipeline (detailed)
 
 ```

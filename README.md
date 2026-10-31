@@ -66,6 +66,29 @@ The launch command disables file watching to avoid inspecting the model librarie
 the app after editing its Python code.
 The interface is intended for local use and has no authentication.
 
+## Local HTTP API
+
+```bash
+python -m pip install -r requirements-api.txt
+python ingest.py
+python -m uvicorn api:app --host 127.0.0.1 --port 8001
+```
+
+`POST /retrieve` returns supporting chunks and corpus provenance without a generation-provider key.
+`POST /ask` returns a generated answer, chunks, and citations using the same provider environment
+variables as the CLI. Interactive request schemas are at `http://127.0.0.1:8001/docs`.
+
+```bash
+curl http://127.0.0.1:8001/retrieve \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What tags are required?","n_results":3}'
+```
+
+The index and embedder load once per process. After ingestion, restart the API to select the updated
+index. Set `RAG_PERSIST_DIR` before starting to use another index. The API has no authentication;
+keep it on loopback for trusted local clients. See [HTTP API](docs/guide.md#http-api) for the response
+contract, freshness checks, an obs-agent client example, and private-data deployment requirements.
+
 ## How it works
 
 ```mermaid
