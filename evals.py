@@ -24,7 +24,7 @@ import argparse
 import re
 import sys
 
-from query import N_RESULTS, RAGEngine
+from query import DEFAULT_RETRIEVAL, N_RESULTS, RETRIEVAL_MODES, RAGEngine
 
 EVALS = [
     {
@@ -105,6 +105,43 @@ EVALS = [
         "expected_sources": ["programme/COST_SMOOTHING.md"],
         "expected_sections": [("programme/COST_SMOOTHING.md", "Plan")],
         "expected_facts": ["20%", "three waves"],
+    },
+    # Exact-term questions: figures, product names and tag names that
+    # MiniLM embeddings match less reliably than keywords (issue #8).
+    {
+        "id": "exact-gcp-coverage-figure",
+        "question": "Which cloud is at 0.47% coverage?",
+        "expected_sources": ["reference/coverage-targets.md"],
+        "expected_sections": [("reference/coverage-targets.md", "Current status")],
+        "expected_facts": ["GCP"],
+    },
+    {
+        "id": "exact-ops-agent",
+        "question": "What does the Ops Agent collect and how is it configured?",
+        "expected_sources": ["reference/gcp-azure-metrics-comparison.md"],
+        "expected_sections": [("reference/gcp-azure-metrics-comparison.md", "Native agents")],
+        "expected_facts": ["host metrics", "YAML"],
+    },
+    {
+        "id": "exact-tag-values",
+        "question": "What values are allowed for the environment and tier tags?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Allowed values")],
+        "expected_facts": ["prod", "staging", "dev"],
+    },
+    {
+        "id": "exact-tag-enforcement",
+        "question": "What happens to resources missing the owner or cost-centre tag?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Enforcement")],
+        "expected_facts": ["Azure Policy", "30 days"],
+    },
+    {
+        "id": "exact-basic-logs",
+        "question": "Which Log Analytics tables move to the Basic Logs tier?",
+        "expected_sources": ["programme/COST_SMOOTHING.md"],
+        "expected_sections": [("programme/COST_SMOOTHING.md", "Plan")],
+        "expected_facts": ["high-volume", "30 days"],
     },
 ]
 
@@ -395,9 +432,12 @@ def main() -> None:
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--persist-dir", default="chroma_db",
                         help="Chroma persistence directory")
+    parser.add_argument("--retrieval", default=DEFAULT_RETRIEVAL, choices=RETRIEVAL_MODES,
+                        help=f"Retrieval mode to evaluate (default: {DEFAULT_RETRIEVAL})")
     args = parser.parse_args()
 
-    engine = RAGEngine(persist_dir=args.persist_dir)
+    engine = RAGEngine(persist_dir=args.persist_dir, retrieval=args.retrieval)
+    print(f"Retrieval mode: {args.retrieval}\n")
 
     p1, f1 = run_retrieval_evals(engine, verbose=args.verbose)
     print(f"\nRetrieval results: {p1}/{p1 + f1} passed")
