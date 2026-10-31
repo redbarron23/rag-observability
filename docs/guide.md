@@ -484,6 +484,8 @@ All files are re-embedded when you pass `--rebuild`, when the active index has n
 
 ### Add documents in the web interface
 
+For ready-to-upload fictional examples, use the three files in [upload-samples](upload-samples/) and follow the [manual test plan](upload-test-plan.md), which includes expected answers and a known cross-document retrieval failure.
+
 1. Open **Add documents** in the sidebar.
 2. Choose one or more Markdown (`.md`) files, encoded as UTF-8. Each file must have at least 50 characters of usable text and be no larger than 5 MB. Empty or heading-only documents are rejected.
 3. Click **Upload and index**. This saves files locally under `data/uploads/<content hash>/<filename>.md` and updates the selected index from the entire `data/` folder, including the sample corpus and all prior uploads. Only new or changed files are embedded (see [incremental ingestion](#incremental-ingestion)).
