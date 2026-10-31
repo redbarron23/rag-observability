@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import chromadb
+import numpy as np
 import pytest
 from chromadb.api.models.Collection import Collection
 
@@ -184,3 +185,98 @@ def test_missing_index_cli_reports_unavailable_without_creating_it(tmp_path, mon
     assert exc.value.code == 2
     assert json.loads(capsys.readouterr().out)["status"] == "unavailable"
     assert not persist.exists()
+
+
+@pytest.fixture
+def corpus(tmp_path, monkeypatch):
+    """Two-document index built with an embedder that records what it embeds."""
+    embedded: list[str] = []
+
+    def encode(texts, **_):
+        embedded.extend(texts)
+        return np.array([[1.0, float(len(text))] for text in texts])
+
+    loader = Mock(return_value=Mock(encode=encode))
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer", loader)
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "alpha.md").write_text("# Alpha\n\n" + "Alpha runbook content. " * 3)
+    (data / "beta.md").write_text("# Beta\n\n" + "Beta runbook content. " * 3)
+    persist = tmp_path / "index"
+    ingest.ingest_documents(str(data), str(persist))
+    embedded.clear()
+    loader.reset_mock()
+    return data, persist, embedded, loader
+
+
+def _stored(persist):
+    collection, _ = ingest._active_collection(str(persist))
+    got = collection.get(include=["embeddings", "documents"])
+    return {i: (doc, list(emb)) for i, doc, emb in zip(got["ids"], got["documents"], got["embeddings"], strict=False)}
+
+
+def test_unchanged_reingest_embeds_nothing_and_keeps_active_index(corpus):
+    data, persist, embedded, loader = corpus
+    active = (persist / "active-collection").read_text()
+    assert ingest.ingest_documents(str(data), str(persist)) == 2
+    loader.assert_not_called()
+    assert embedded == []
+    assert (persist / "active-collection").read_text() == active
+
+
+def test_editing_one_file_reembeds_only_that_file(corpus):
+    data, persist, embedded, _ = corpus
+    before = _stored(persist)
+    (data / "beta.md").write_text("# Beta\n\n" + "Edited beta runbook content. " * 3)
+    ingest.ingest_documents(str(data), str(persist))
+    assert embedded == ["Beta\n\n" + ("Edited beta runbook content. " * 3).strip()]
+    after = _stored(persist)
+    assert after["alpha.md#0"] == before["alpha.md#0"]
+    assert after["beta.md#0"][0].startswith("Beta\n\nEdited")
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+
+
+def test_added_and_deleted_files_update_index_without_reembedding_others(corpus):
+    data, persist, embedded, _ = corpus
+    (data / "beta.md").unlink()
+    (data / "gamma.md").write_text("# Gamma\n\n" + "Gamma runbook content. " * 3)
+    assert ingest.ingest_documents(str(data), str(persist)) == 2
+    assert len(embedded) == 1 and "Gamma" in embedded[0]
+    assert set(_stored(persist)) == {"alpha.md#0", "gamma.md#0"}
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+
+
+def test_deleting_only_a_file_switches_without_loading_embedder(corpus):
+    data, persist, _, loader = corpus
+    (data / "beta.md").unlink()
+    assert ingest.ingest_documents(str(data), str(persist)) == 1
+    loader.assert_not_called()
+    assert set(_stored(persist)) == {"alpha.md#0"}
+
+
+@pytest.mark.parametrize("kwargs", [{"rebuild": True}, {"chunk_size": 400}])
+def test_rebuild_or_incompatible_index_reembeds_everything(corpus, kwargs):
+    data, persist, embedded, _ = corpus
+    ingest.ingest_documents(str(data), str(persist), **kwargs)
+    assert len(embedded) == 2
+
+
+def test_failed_incremental_update_keeps_previous_index(corpus, monkeypatch):
+    data, persist, _, _ = corpus
+    before = _stored(persist)
+    active = (persist / "active-collection").read_text()
+    (data / "beta.md").write_text("# Beta\n\n" + "Edited beta runbook content. " * 3)
+    monkeypatch.setattr(Collection, "count", lambda self: 0)
+    with pytest.raises(RuntimeError):
+        ingest.ingest_documents(str(data), str(persist))
+    monkeypatch.undo()
+    assert (persist / "active-collection").read_text() == active
+    assert _stored(persist) == before
+
+
+def test_rebuild_cli_flag(monkeypatch):
+    runner = Mock()
+    monkeypatch.setattr(ingest, "ingest_documents", runner)
+    monkeypatch.setattr("sys.argv", ["ingest.py", "--rebuild"])
+    ingest.main()
+    runner.assert_called_once_with("data", "chroma_db", 500, rebuild=True)

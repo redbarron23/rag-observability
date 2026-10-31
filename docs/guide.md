@@ -395,6 +395,9 @@ Retrieval-only evals run in CI and exit non-zero on any failure, including missi
 # Ingest with custom chunk size
 python ingest.py --data-dir data --chunk-size 600
 
+# Re-embed every document instead of reusing unchanged embeddings
+python ingest.py --rebuild
+
 # Single query (default provider)
 python query.py "What are the top monitoring gaps identified?"
 
@@ -444,13 +447,21 @@ python ingest.py --check --persist-dir /path/to/index --data-dir /new/path/to/do
 
 The JSON result reports `current`, `stale` (with added, modified, and deleted relative paths), or `unavailable` (with a reason). Exit codes are **0**, **1**, and **2**, respectively. By default the check uses the directory recorded at ingestion, regardless of the current working directory. Missing directories, unreadable files/directories, and missing provenance are unavailable rather than evidence of freshness. Newly added stubs shorter than 50 trimmed characters and non-Markdown files are excluded, matching ingestion; shortening an indexed document is reported as a modification. A successful rebuild removes documents that no longer qualify.
 
-This is an explicit local snapshot check; queries do not automatically check freshness. Avoid editing sources during ingestion or the check. Remote synchronization and incremental embedding are outside this feature.
+This is an explicit local snapshot check; queries do not automatically check freshness. Avoid editing sources during ingestion or the check. Remote synchronization is outside this feature.
+
+### Incremental ingestion
+
+`python ingest.py` (and **Upload and index**) compares each loaded file's SHA-256 with the active collection's manifest. A file whose hash, chunk text, section, and per-chunk `source_sha256` all match reuses its stored embeddings; added and changed files are embedded, and files that were deleted (or no longer qualify) are dropped. When nothing was added, changed, or deleted and the source directory is the one recorded, ingestion reports that the index is up to date, embeds nothing, and leaves the active collection in place. Deleting files only does not load the embedding model.
+
+Any change still builds a complete new collection — unchanged chunks are copied with their stored embeddings — and verifies its chunk count before the `active-collection` pointer switches, so a failed update leaves the previous index active exactly as a full rebuild does.
+
+All files are re-embedded when you pass `--rebuild`, when the active index has no supported manifest, or when it was built with a different embedding model or `--chunk-size`. Use `--rebuild` after changing the embedding model version installed locally, since the manifest records the model name but not its revision.
 
 ### Add documents in the web interface
 
 1. Open **Add documents** in the sidebar.
 2. Choose one or more Markdown (`.md`) files, encoded as UTF-8. Each file must have at least 50 characters of usable text and be no larger than 5 MB. Empty or heading-only documents are rejected.
-3. Click **Upload and index**. This saves files locally under `data/uploads/<content hash>/<filename>.md` and rebuilds the selected index from the entire `data/` folder, including the sample corpus and all prior uploads.
+3. Click **Upload and index**. This saves files locally under `data/uploads/<content hash>/<filename>.md` and updates the selected index from the entire `data/` folder, including the sample corpus and all prior uploads. Only new or changed files are embedded (see [incremental ingestion](#incremental-ingestion)).
 4. Wait for the success message, then click **Find sources** with a question about your document. The engine is reloaded automatically.
 
 Uploads are excluded from Git. An identical file uploaded again reuses its saved path; different content with the same filename is saved separately, so old versions are not silently overwritten or removed. To retire an old version, remove its saved file from `data/uploads/`, rebuild with `python ingest.py`, and click **Reload index**. Uploading and embedding run locally; **Generate answer** sends retrieved text to the configured provider.
