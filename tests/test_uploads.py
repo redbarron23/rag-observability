@@ -89,4 +89,4 @@ def test_cli_uses_shared_ingestion(monkeypatch):
     monkeypatch.setattr(ingest, "ingest_documents", runner)
     monkeypatch.setattr("sys.argv", ["ingest.py", "--data-dir", "docs", "--persist-dir", "index"])
     ingest.main()
-    runner.assert_called_once_with("docs", "index", 500)
+    runner.assert_called_once_with("docs", "index", 500, rebuild=False)

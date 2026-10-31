@@ -51,11 +51,14 @@ Each question is independent; earlier questions are not sent as conversation his
 To add documents, use **Add documents** in the sidebar: choose one or more `.md` files,
 then click **Upload and index**. Files must be UTF-8 text with at least 50 characters of
 usable content, up to 5 MB each. Uploads are saved under `data/uploads/` (excluded from Git).
-The selected index is rebuilt from all documents in `data/`, including existing uploads,
-and the cached engine is cleared automatically. Different contents with the same filename
+The selected index is updated from all documents in `data/`, including existing uploads;
+only new or changed files are embedded, and the cached engine is cleared automatically. Different contents with the same filename
 are kept separately; identical re-uploads reuse the saved file. See [data handling](docs/guide.md#data-handling)
 for command-line ingestion, document structure, and rebuild limitations.
 
+Re-running `python ingest.py` embeds only added or changed files, drops deleted ones, and
+does nothing when sources are unchanged; `python ingest.py --rebuild` re-embeds everything.
+See [incremental ingestion](docs/guide.md#incremental-ingestion).
 After re-ingesting documents, click **Reload index** to reload the cached engine.
 Use `python ingest.py --check` to detect changed local source documents; verbose CLI queries
 show the indexed timestamp and corpus hash. See [corpus provenance](docs/guide.md#indexed-corpus-provenance-and-freshness).
