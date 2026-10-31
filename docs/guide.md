@@ -267,7 +267,7 @@ The model is downloaded once on first run and cached locally (that's the `HF_TOK
 
 `RAGEngine.retrieve()` in [`query.py`](../query.py) embeds the question with the same model used for ingestion, runs a cosine-similarity query against ChromaDB for the top `--n-results` chunks (default 6), and returns each chunk's text with its `source`, `section` and `distance`.
 
-Chunks with a cosine distance above `--max-distance` (default `0.6`; 0 = identical) are dropped; if nothing survives, the answer is "No relevant documents found." and no LLM call is made. The default comes from the eval questions: on the sample corpus every answerable question has a relevant chunk within 0.34, the unanswerable ones have nothing closer than 0.65, and no expected fact or source is lost at any cutoff from 0.55 to 0.65. Pass `--max-distance 2` to keep all top-k (cosine distance tops out at 2), and re-measure the cutoff on your own documents.
+Chunks with a cosine distance above `--max-distance` (default `0.6`; 0 = identical) are dropped; if nothing survives, the answer is "No relevant documents found." and no LLM call is made. The default comes from the eval questions: on the sample corpus the answerable questions find a relevant chunk within 0.57 and the unanswerable ones have nothing closer than 0.65. Pass `--max-distance 2` to keep all top-k (cosine distance tops out at 2), and re-measure the cutoff on your own documents.
 
 ### Hybrid retrieval (opt-in)
 
@@ -277,10 +277,19 @@ Retrieval evals on the bundled corpus (top-6, 0.6 cutoff):
 
 | Mode | Passed | Section recall @1 | @3 | @6 |
 |---|---|---|---|---|
-| `vector` (default) | 19/19 | 10/18 | 17/18 | 18/18 |
-| `hybrid` | 19/19 | 12/18 | 17/18 | 18/18 |
+| `vector` (default) | 21/21 | 12/20 | 19/20 | 20/20 |
+| `hybrid` | 21/21 | 14/20 | 19/20 | 20/20 |
 
-Hybrid moves the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranks lower and all four unanswerable questions are still rejected. Vector stays the default because no case changes from fail to pass and generation evals (`--with-llm`) haven't been compared across the two modes. Short exact-term questions such as "What does the Ops Agent do?" (best chunk at distance 0.64) fail in both modes because the distance cutoff drops them before ranking matters.
+Hybrid moves the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranks lower and all four unanswerable questions are still rejected. Vector stays the default because no case changes from fail to pass and generation evals (`--with-llm`) haven't been compared across the two modes. The two `short-*` cases pass in both modes because of the [exact-term margin](#exact-term-margin); without it they fail in both.
+
+#### Exact-term margin
+
+Short questions about a named thing embed poorly. For "What does the Ops Agent do?" and "What is last_updated used for?" the right chunk ranks first at distance 0.637 and 0.641, so a plain 0.6 cutoff drops it and the question goes unanswered. A chunk up to `EXACT_TERM_MARGIN` (0.1) beyond `--max-distance` is therefore kept when it contains, as a whole word, an exact term from the question:
+
+- identifiers: tokens with `_`, `-`, `.` or `%`, or that mix letters and digits (`last_updated`, `cost-centre`, `0.47%`, `p95`), at least three characters long;
+- multi-word names: runs of two or more capitalised words after the question's first word (`Ops Agent`, `Basic Logs`).
+
+Single capitalised words such as `GCP` don't count; they appear throughout the corpus. BM25 scores were not usable as the signal: on 37 chunks, generic words like "month" score as high as "ops". The margin applies in both retrieval modes and only to chunks already in the ranked results. On the bundled corpus the closest chunk to each unanswerable question is at 0.652 or more and contains none of its exact terms, so all four are still rejected. A question that names a real term but asks something the documents don't cover (for example the Ops Agent's price) can still retrieve that chunk; the model then has to decline.
 
 Chunk IDs are `<source>#<index>` (e.g. `reference/coverage-targets.md#2`), so editing one document doesn't renumber the chunks of every other document.
 
@@ -405,12 +414,12 @@ Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-ve
 
 | Mode | Cases | Passed |
 |---|---|---|
-| Retrieval (document attribution + supporting sections + cutoff), no API key | 19 | 19 (100%) |
+| Retrieval (document attribution + supporting sections + cutoff), no API key | 21 | 21 (100%) |
 | Full, generation with DeepSeek (facts, citations, declines), before the `exact-*` cases | 14 | 14 (100%) |
 
 Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
-Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 19 pass locally (top-6 vector retrieval, 0.6 cutoff). Document attribution is 15/15 answerable cases; supporting-section recall is 10/18 at rank 1, 17/18 at rank 3, and 18/18 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the four unanswerable cases, which are scored by rejection instead. The full-generation result above is the earlier DeepSeek run; generation was not rerun for the section-check change or the `exact-*` cases.
+Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 21 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution is 17/17 answerable cases; supporting-section recall is 12/20 at rank 1, 19/20 at rank 3, and 20/20 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the four unanswerable cases, which are scored by rejection instead. The full-generation result above is the earlier DeepSeek run; generation was not rerun for the section-check change or the `exact-*` and `short-*` cases.
 
 ---
 

@@ -143,6 +143,23 @@ EVALS = [
         "expected_sections": [("programme/COST_SMOOTHING.md", "Plan")],
         "expected_facts": ["high-volume", "30 days"],
     },
+    # Short questions about a named thing embed poorly: the right chunk ranks
+    # first but sits just past the distance cutoff (~0.64). They pass because
+    # the chunk contains the exact term (query.EXACT_TERM_MARGIN).
+    {
+        "id": "short-ops-agent",
+        "question": "What does the Ops Agent do?",
+        "expected_sources": ["reference/gcp-azure-metrics-comparison.md"],
+        "expected_sections": [("reference/gcp-azure-metrics-comparison.md", "Native agents")],
+        "expected_facts": ["host metrics", "YAML"],
+    },
+    {
+        "id": "short-last-updated",
+        "question": "What is last_updated used for?",
+        "expected_sources": ["data-first-approach.md"],
+        "expected_sections": [("data-first-approach.md", "Freshness check")],
+        "expected_facts": ["6 hours"],
+    },
 ]
 
 # Questions on observability-adjacent topics that the sample corpus doesn't
