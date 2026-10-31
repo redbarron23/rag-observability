@@ -6,7 +6,7 @@ Use the three fictional documents in [upload-samples](upload-samples/). They cov
 
 1. Open the local Streamlit interface.
 2. Under **Add documents**, select the three `.md` files from `docs/upload-samples/`. Do not upload this test plan: its expected answers would contaminate the retrieval test.
-3. Click **Upload and index** and wait for the success message. This rebuilds the selected index from `data/`, including existing documents and prior uploads.
+3. Click **Upload and index** and wait for the success message. This updates the selected index from `data/`: only new or changed files are embedded, and existing documents and prior uploads reuse their stored embeddings.
 4. Leave the defaults at six chunks and a maximum distance of 0.6. Ask the questions below using **Find sources**.
 5. Inspect the returned section names and text. Record missing sections rather than changing the expected answer to match retrieval. If a section is missing, temporarily increase the chunk count to 12 and/or use distance 2 to diagnose ranking and filtering; those diagnostic results are separate from the default-settings result.
 6. Optionally click **Generate answer** to check factual accuracy and citations. This makes a provider request and may incur charges. Retrieval alone needs no provider key.
@@ -29,6 +29,8 @@ The filenames below are the source document names; the UI prefixes uploaded file
 A document's introduction is not sufficient evidence when the required section is missing. Generated answers must attach citations to the facts they support; the presence of a familiar number somewhere in the answer is insufficient.
 
 ## Initial retrieval check — 17 October 2026
+
+Recorded with vector-only retrieval, before hybrid retrieval (#8) existed.
 
 Validated the actual upload-saving and ingestion functions in a temporary index containing the eight original documents plus these three uploads: 11 documents and 55 chunks. With `all-MiniLM-L6-v2`, sentence-transformers 6.1.0, six chunks, and a distance cutoff of 0.6, seven of the eight answerable questions retrieved all required sections.
 
