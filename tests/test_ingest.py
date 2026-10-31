@@ -1,5 +1,7 @@
 """Unit tests for document loading and chunking (no embedding model needed)."""
 
+from hashlib import sha256
+
 from ingest import chunk_text_simple, load_documents
 
 DOC = """# Title
@@ -85,3 +87,11 @@ def test_sample_corpus_loads():
     docs = load_documents("data")
     assert len(docs) >= 8
     assert "reference/coverage-targets.md" in {d["rel_path"] for d in docs}
+
+
+def test_source_hash_uses_original_bytes_while_text_normalizes_newlines(tmp_path):
+    content = b"# Heading\r\n\r\n" + b"Runbook instructions.\r\n" * 4
+    (tmp_path / "windows.md").write_bytes(content)
+    doc, = load_documents(str(tmp_path))
+    assert doc["sha256"] == sha256(content).hexdigest()
+    assert "\r" not in doc["text"]

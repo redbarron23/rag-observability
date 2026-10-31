@@ -57,6 +57,8 @@ are kept separately; identical re-uploads reuse the saved file. See [data handli
 for command-line ingestion, document structure, and rebuild limitations.
 
 After re-ingesting documents, click **Reload index** to reload the cached engine.
+Use `python ingest.py --check` to detect changed local source documents; verbose CLI queries
+show the indexed timestamp and corpus hash. See [corpus provenance](docs/guide.md#indexed-corpus-provenance-and-freshness).
 The launch command disables file watching to avoid inspecting the model libraries; restart
 the app after editing its Python code.
 The interface is intended for local use and has no authentication.

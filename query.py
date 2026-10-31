@@ -14,11 +14,14 @@ Default provider is Anthropic (Claude). Set LLM_PROVIDER=deepseek to use DeepSee
 """
 
 import argparse
+import json
 import os
 from pathlib import Path
 
 import chromadb
 from sentence_transformers import SentenceTransformer
+
+from ingest import EMBED_MODEL
 
 # ── Defaults ───────────────────────────────────────────────────────────
 
@@ -30,7 +33,6 @@ N_RESULTS = 6
 # questions have nothing closer than 0.65. Cosine distance tops out at 2, so
 # --max-distance 2 turns the cutoff off.
 MAX_DISTANCE = 0.6
-EMBED_MODEL = "all-MiniLM-L6-v2"
 
 DEFAULT_PROVIDER = "anthropic"
 DEFAULT_MODEL = "claude-sonnet-5-5"
@@ -104,6 +106,15 @@ class RAGEngine:
                max_distance: float | None = MAX_DISTANCE) -> tuple[str, list[dict]]:
         """Retrieve relevant chunks and generate an answer via the configured LLM."""
         chunks = self.retrieve(query, n_results=n_results, max_distance=max_distance)
+
+        if verbose:
+            manifest = json.loads((self.collection.metadata or {}).get("corpus_manifest", "null"))
+            if manifest:
+                print(f"Indexed at: {manifest['ingested_at']}")
+                print(f"Corpus SHA-256: {manifest['corpus_sha256']}")
+                print(f"Embedding model: {manifest['embedding_model']}")
+            else:
+                print("Corpus provenance unavailable; re-ingest to record it.")
 
         if not chunks:
             return "No relevant documents found.", chunks

@@ -1,5 +1,9 @@
-"""Replacement failures must leave both existing and new readers usable."""
+"""Index replacement safety and the provenance of each indexed snapshot."""
 
+import json
+from datetime import datetime
+from hashlib import sha256
+from pathlib import Path
 from unittest.mock import Mock
 
 import chromadb
@@ -48,6 +52,9 @@ def test_failed_rebuild_keeps_previous_queries(index, monkeypatch, failure):
     assert (persist / "active-collection").read_text() == active
     assert reader.retrieve("runbook") == expected
     assert RAGEngine(str(persist)).retrieve("runbook") == expected
+    assert json.loads(reader.collection.metadata["corpus_manifest"])["corpus_sha256"] == (
+        ingest.check_freshness(str(persist))["corpus_sha256"]
+    )
     assert not list(persist.glob(".*.tmp"))
 
 
@@ -65,3 +72,115 @@ def test_legacy_index_remains_readable(tmp_path, monkeypatch):
     client = chromadb.PersistentClient(path=str(tmp_path))
     client.create_collection("observability-docs")
     assert RAGEngine(str(tmp_path)).collection.name == "observability-docs"
+    assert ingest.check_freshness(str(tmp_path))["status"] == "unavailable"
+
+
+def test_manifest_matches_indexed_bytes_and_is_stable_across_rebuilds(index):
+    data, persist, reader = index
+    manifest = json.loads(reader.collection.metadata["corpus_manifest"])
+    assert manifest["sources"] == {"old.md": sha256((data / "old.md").read_bytes()).hexdigest()}
+    assert datetime.fromisoformat(manifest["ingested_at"]).utcoffset().total_seconds() == 0
+    assert manifest["embedding_model"] == ingest.EMBED_MODEL
+    assert manifest["embedding_revision"] is None
+    assert "Original runbook content" not in json.dumps(manifest)
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+    ingest.ingest_documents(str(data), str(persist))
+    assert ingest.check_freshness(str(persist))["corpus_sha256"] == manifest["corpus_sha256"]
+
+
+def test_freshness_reports_added_modified_and_deleted_sources(index):
+    data, persist, _ = index
+    (data / "old.md").write_text("# Old\n\n" + "Changed runbook content. " * 3)
+    (data / "added.md").write_text("# Added\n\n" + "Another runbook. " * 5)
+    result = ingest.check_freshness(str(persist))
+    assert result["status"] == "stale"
+    assert result["modified"] == ["old.md"]
+    assert result["added"] == ["added.md"]
+    assert result["deleted"] == []
+    (data / "old.md").unlink()
+    assert ingest.check_freshness(str(persist))["deleted"] == ["old.md"]
+
+
+def test_shortened_source_is_modified_rather_than_deleted(index):
+    data, persist, _ = index
+    (data / "old.md").write_text("short")
+    result = ingest.check_freshness(str(persist))
+    assert result["status"] == "stale"
+    assert result["modified"] == ["old.md"]
+    assert result["deleted"] == []
+
+
+def test_freshness_reports_unavailable_directory_and_unreadable_file(index, monkeypatch):
+    data, persist, _ = index
+    assert ingest.check_freshness(str(persist), str(data / "missing"))["status"] == "unavailable"
+    original_read = Path.read_bytes
+
+    def unreadable(path):
+        if path.name == "old.md":
+            raise PermissionError("old.md is unreadable")
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", unreadable)
+    result = ingest.check_freshness(str(persist))
+    assert result["status"] == "unavailable"
+    assert "old.md is unreadable" in result["reason"]
+
+
+def test_unreadable_subdirectory_is_unavailable_rather_than_current(index, monkeypatch):
+    data, persist, _ = index
+    restricted = data / "restricted"
+    restricted.mkdir()
+    original_scandir = ingest.os.scandir
+
+    def unreadable(path):
+        if Path(path) == restricted:
+            raise PermissionError("restricted directory is unreadable")
+        return original_scandir(path)
+
+    monkeypatch.setattr(ingest.os, "scandir", unreadable)
+    result = ingest.check_freshness(str(persist))
+    assert result["status"] == "unavailable"
+    assert "restricted directory" in result["reason"]
+
+
+def test_relocated_source_directory_can_be_checked_explicitly(index):
+    data, persist, _ = index
+    moved = data.with_name("moved")
+    data.rename(moved)
+    assert ingest.check_freshness(str(persist))["status"] == "unavailable"
+    assert ingest.check_freshness(str(persist), str(moved))["status"] == "current"
+
+
+@pytest.mark.parametrize("stale, expected_code", [(False, 0), (True, 1)])
+def test_freshness_cli_does_not_load_embedder(index, monkeypatch, capsys, stale, expected_code):
+    data, persist, _ = index
+    if stale:
+        (data / "old.md").unlink()
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer", Mock(side_effect=AssertionError))
+    monkeypatch.setattr("sys.argv", ["ingest.py", "--check", "--persist-dir", str(persist)])
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as exc:
+        ingest.main()
+    assert exc.value.code == expected_code
+    assert json.loads(capsys.readouterr().out)["status"] == ("stale" if stale else "current")
+
+
+def test_verbose_query_reports_snapshot_even_without_matches(index, capsys):
+    _, _, reader = index
+    reader.retrieve = Mock(return_value=[])
+    reader.answer("irrelevant", verbose=True)
+    output = capsys.readouterr().out
+    manifest = json.loads(reader.collection.metadata["corpus_manifest"])
+    assert manifest["ingested_at"] in output
+    assert manifest["corpus_sha256"] in output
+    assert ingest.EMBED_MODEL in output
+
+
+def test_missing_index_cli_reports_unavailable_without_creating_it(tmp_path, monkeypatch, capsys):
+    persist = tmp_path / "missing"
+    monkeypatch.setattr("sys.argv", ["ingest.py", "--check", "--persist-dir", str(persist)])
+    with pytest.raises(SystemExit) as exc:
+        ingest.main()
+    assert exc.value.code == 2
+    assert json.loads(capsys.readouterr().out)["status"] == "unavailable"
+    assert not persist.exists()
