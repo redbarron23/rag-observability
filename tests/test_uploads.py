@@ -1,5 +1,6 @@
 """Validate uploads and the shared ingestion path without downloading models."""
 
+from hashlib import sha256
 from unittest.mock import Mock
 
 import pytest
@@ -76,7 +77,10 @@ def test_shared_ingestion_stores_uploads_with_source_and_section(tmp_path, monke
     stored = client.create_collection.return_value.add.call_args.kwargs
     source = path.relative_to(tmp_path).as_posix()
     assert stored["ids"] == [f"{source}#0"]
-    assert stored["metadatas"] == [{"source": source, "file": "runbook.md", "section": "Latency"}]
+    assert stored["metadatas"] == [{
+        "source": source, "file": "runbook.md", "section": "Latency",
+        "source_sha256": sha256(DOCUMENT).hexdigest(),
+    }]
     assert "Check slow queries" in stored["documents"][0]
 
 

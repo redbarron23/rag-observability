@@ -10,23 +10,36 @@ each chunk, and stores them in a local Chroma collection.
 """
 
 import argparse
+import json
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
 import chromadb
+from chromadb.errors import NotFoundError
+
+EMBED_MODEL = "all-MiniLM-L6-v2"
 
 
 def load_documents(data_dir: str) -> list[dict]:
     """Read all .md files from data_dir and return a list of
-    {'path': str, 'rel_path': str, 'filename': str, 'text': str} dicts."""
+    {'path', 'rel_path', 'filename', 'text', 'sha256'} dicts."""
     docs = []
     root = Path(data_dir).resolve()
-    for path in sorted(root.rglob("*.md")):
-        text = path.read_text(encoding="utf-8")
+
+    def on_error(exc):
+        raise exc  # An unreadable directory must not look like deleted documents.
+
+    paths = []
+    for directory, _, filenames in os.walk(root, onerror=on_error):
+        paths.extend(Path(directory) / name for name in filenames if name.endswith(".md"))
+    for path in sorted(paths):
+        content = path.read_bytes()
+        text = content.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         if len(text.strip()) < 50:
             continue  # skip stubs / near-empty files
         rel = path.relative_to(root)
@@ -35,8 +48,48 @@ def load_documents(data_dir: str) -> list[dict]:
             "rel_path": str(rel),
             "filename": path.name,
             "text": text,
+            "sha256": sha256(content).hexdigest(),
         })
     return docs
+
+
+def check_freshness(persist_dir: str, data_dir: str | None = None) -> dict:
+    """Compare the active collection's source snapshot with local Markdown."""
+    try:
+        if not Path(persist_dir).is_dir():
+            return {"status": "unavailable", "reason": f"Index directory unavailable: {persist_dir}"}
+        pointer = Path(persist_dir) / "active-collection"
+        name = pointer.read_text(encoding="utf-8") if pointer.exists() else "observability-docs"
+        client = chromadb.PersistentClient(path=persist_dir)
+        collection = client.get_collection(name)
+        manifest = json.loads((collection.metadata or {}).get("corpus_manifest", "null"))
+        if not manifest or manifest["schema_version"] != 1:
+            return {"status": "unavailable", "reason": "No supported corpus manifest; re-ingest."}
+        root = Path(data_dir or manifest["data_dir"])
+        if not root.is_dir():
+            return {"status": "unavailable", "reason": f"Source directory unavailable: {root}"}
+        current = {doc["rel_path"]: doc["sha256"] for doc in load_documents(str(root))}
+        indexed = manifest["sources"]
+        # Previously indexed files can become too short to qualify for ingestion.
+        for source in indexed.keys() - current.keys():
+            try:
+                current[source] = sha256((root / source).read_bytes()).hexdigest()
+            except FileNotFoundError:
+                pass
+        added = sorted(current.keys() - indexed.keys())
+        deleted = sorted(indexed.keys() - current.keys())
+        modified = sorted(source for source in current.keys() & indexed.keys()
+                          if current[source] != indexed[source])
+        return {
+            "status": "stale" if added or deleted or modified else "current",
+            "ingested_at": manifest["ingested_at"],
+            "corpus_sha256": manifest["corpus_sha256"],
+            "embedding_model": manifest["embedding_model"],
+            "data_dir": str(root),
+            "added": added, "modified": modified, "deleted": deleted,
+        }
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError, NotFoundError) as exc:
+        return {"status": "unavailable", "reason": str(exc)}
 
 
 def chunk_text_simple(text: str, chunk_size: int) -> list[dict]:
@@ -159,6 +212,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
             c["source"] = doc["rel_path"]
             c["source_file"] = doc["filename"]
             c["source_path"] = doc["path"]
+            c["source_sha256"] = doc["sha256"]
         all_chunks.extend(chunks)
         print(f"  {doc['rel_path']}: {len(chunks)} chunks")
 
@@ -169,7 +223,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     # ── Embed and store ─────────────────────────────────────────
     from sentence_transformers import SentenceTransformer
     print("Loading embedding model...")
-    embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    embedder = SentenceTransformer(EMBED_MODEL)
 
     texts = [c["text"] for c in all_chunks]
     metadatas = [
@@ -177,6 +231,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
             "source": c["source"],
             "file": c["source_file"],
             "section": c.get("section", ""),
+            "source_sha256": c["source_sha256"],
         }
         for c in all_chunks
     ]
@@ -194,9 +249,20 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
 
     # Keep readers on the previous collection until the replacement is complete.
     name = f"observability-docs-{uuid4().hex}"
+    sources = {doc["rel_path"]: doc["sha256"] for doc in docs}
+    manifest = {
+        "schema_version": 1,
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "data_dir": str(Path(data_dir).resolve()),
+        "embedding_model": EMBED_MODEL,
+        "embedding_revision": None,
+        "chunk_size": chunk_size,
+        "sources": sources,
+        "corpus_sha256": sha256(json.dumps(sources, sort_keys=True).encode("utf-8")).hexdigest(),
+    }
     collection = client.create_collection(
         name=name,
-        metadata={"hnsw:space": "cosine"},
+        metadata={"hnsw:space": "cosine", "corpus_manifest": json.dumps(manifest)},
     )
 
     collection.add(
@@ -228,14 +294,20 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest docs into Chroma")
-    parser.add_argument("--data-dir", default="data", help="Path to markdown files")
+    parser.add_argument("--data-dir", help="Path to Markdown (default: data; --check: recorded path)")
     parser.add_argument("--persist-dir", default="chroma_db",
                         help="Chroma persistence directory")
     parser.add_argument("--chunk-size", type=int, default=500,
                         help="Target chunk size in characters")
+    parser.add_argument("--check", action="store_true",
+                        help="Check local source freshness without embedding or generation")
     args = parser.parse_args()
+    if args.check:
+        result = check_freshness(args.persist_dir, args.data_dir)
+        print(json.dumps(result, indent=2))
+        sys.exit({"current": 0, "stale": 1, "unavailable": 2}[result["status"]])
     try:
-        ingest_documents(args.data_dir, args.persist_dir, args.chunk_size)
+        ingest_documents(args.data_dir or "data", args.persist_dir, args.chunk_size)
     except ValueError as exc:
         print(exc)
         sys.exit(1)

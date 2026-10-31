@@ -427,6 +427,25 @@ python evals.py --with-llm
 
 `data/` ships with a small **fictional** sample corpus (a made-up "Contoso Cloud" observability programme) so the project runs out of the box and CI can verify retrieval. `chroma_db/` is generated from it and is in `.gitignore`.
 
+### Indexed corpus provenance and freshness
+
+Each newly built collection stores a versioned JSON `corpus_manifest` in its Chroma metadata: UTC ingestion time, original absolute source directory, SHA-256 hashes of loaded Markdown files, a combined corpus hash, embedding-model identifier, and chunk size. Chunk metadata also includes its source hash. Hashes use original file bytes; the combined hash covers the sorted source-path/hash mapping. The embedding revision is explicitly `null` because ingestion does not pin or resolve a model revision. The manifest contains no document text or provider credentials, but does contain local paths.
+
+`python query.py --verbose "your question"` prints the indexed timestamp, corpus hash, and embedding model before the answer, including when no relevant chunks match. Existing readers retain provenance for their loaded collection after another process rebuilds the index; reload to use the replacement. Indexes created without a manifest remain queryable and report provenance as unavailable until re-ingested.
+
+Check the active index against local sources without loading the embedding model or calling a provider:
+
+```bash
+python ingest.py --check
+python ingest.py --check --persist-dir /path/to/index
+# If the source directory has moved, compare against its new location:
+python ingest.py --check --persist-dir /path/to/index --data-dir /new/path/to/docs
+```
+
+The JSON result reports `current`, `stale` (with added, modified, and deleted relative paths), or `unavailable` (with a reason). Exit codes are **0**, **1**, and **2**, respectively. By default the check uses the directory recorded at ingestion, regardless of the current working directory. Missing directories, unreadable files/directories, and missing provenance are unavailable rather than evidence of freshness. Newly added stubs shorter than 50 trimmed characters and non-Markdown files are excluded, matching ingestion; shortening an indexed document is reported as a modification. A successful rebuild removes documents that no longer qualify.
+
+This is an explicit local snapshot check; queries do not automatically check freshness. Avoid editing sources during ingestion or the check. Remote synchronization and incremental embedding are outside this feature.
+
 ### Add documents in the web interface
 
 1. Open **Add documents** in the sidebar.
