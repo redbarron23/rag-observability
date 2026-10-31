@@ -33,11 +33,16 @@ from ingest import EMBED_MODEL
 PERSIST_DIR = "chroma_db"
 COLLECTION_NAME = "observability-docs"
 N_RESULTS = 6
-# Cosine distance above which a chunk is dropped. On the sample corpus every
-# answerable eval question has a relevant chunk within 0.34, and unanswerable
+# Cosine distance above which a chunk is dropped. On the sample corpus the
+# answerable eval questions find a relevant chunk within 0.57, and unanswerable
 # questions have nothing closer than 0.65. Cosine distance tops out at 2, so
 # --max-distance 2 turns the cutoff off.
 MAX_DISTANCE = 0.6
+# Short questions about a named thing ("What does the Ops Agent do?",
+# "What is last_updated used for?") embed poorly: the right chunk ranks first
+# at ~0.64 and the cutoff drops it. A chunk up to this much beyond the cutoff
+# is kept when it contains an exact term from the question (see exact_terms).
+EXACT_TERM_MARGIN = 0.1
 
 # "vector" ranks chunks by embedding similarity alone. "hybrid" fuses that
 # ranking with a BM25 keyword ranking (reciprocal rank fusion), which helps
@@ -56,6 +61,47 @@ TOKEN_RE = re.compile(r"\w+(?:[.\-]\w+)*%?")
 def tokenize(text: str) -> list[str]:
     """Lowercased keyword tokens for BM25."""
     return TOKEN_RE.findall(text.lower())
+
+
+# Names written as a run of capitalised words: "Ops Agent", "Basic Logs".
+PROPER_PHRASE_RE = re.compile(r"\b[A-Z][\w-]*(?:\s+[A-Z][\w-]*)+")
+
+
+def exact_terms(query: str) -> list[str]:
+    """Distinctive terms in a question that a chunk can match verbatim.
+
+    Identifiers ("last_updated", "cost-centre", "0.47%", "p95") and multi-word
+    names ("Ops Agent"). Single capitalised words such as "GCP" are too common
+    in the corpus to count, and the question's first word is ignored so that
+    "Which Log Analytics" reduces to "Log Analytics".
+    """
+    terms = [t for t in TOKEN_RE.findall(query)
+             if len(t) >= 3 and (re.search(r"[_.%-]", t)
+                                 or (re.search(r"\d", t) and re.search(r"[a-zA-Z]", t)))]
+    words = query.split(maxsplit=1)
+    rest = words[1] if len(words) > 1 else ""
+    terms += [" ".join(m.split()) for m in PROPER_PHRASE_RE.findall(rest)]
+    return list(dict.fromkeys(terms))
+
+
+def matched_exact_terms(terms: list[str], text: str) -> list[str]:
+    """The terms that appear in text as whole words, ignoring case and spacing."""
+    flat = " ".join(text.split())
+    return [t for t in terms
+            if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", flat, re.IGNORECASE)]
+
+
+def within_cutoff(distance: float | None, max_distance: float | None,
+                  terms: list[str], text: str) -> bool:
+    """The distance cutoff, relaxed by EXACT_TERM_MARGIN for exact-term matches."""
+    if max_distance is None:
+        return True
+    if distance is None:
+        return False
+    if distance <= max_distance:
+        return True
+    return (distance <= max_distance + EXACT_TERM_MARGIN
+            and bool(matched_exact_terms(terms, text)))
 
 
 def bm25_scores(query: str, documents: list[list[str]]) -> list[float]:
@@ -179,7 +225,8 @@ class RAGEngine:
         """Embed the query and retrieve the top-k matching chunks.
 
         Chunks with a cosine distance above max_distance (i.e. less similar)
-        are dropped; pass None to keep all top-k.
+        are dropped, unless they are within EXACT_TERM_MARGIN of it and contain
+        an exact term from the query; pass None to keep all top-k.
         """
         query_embedding = self.embedder.encode([query]).tolist()[0]
         if self.retrieval == "hybrid":
@@ -201,10 +248,9 @@ class RAGEngine:
                 "section": meta.get("section", ""),
                 "distance": results["distances"][0][i] if "distances" in results else None,
             })
-        if max_distance is not None:
-            chunks = [c for c in chunks
-                      if c["distance"] is not None and c["distance"] <= max_distance]
-        return chunks
+        terms = exact_terms(query)
+        return [c for c in chunks
+                if within_cutoff(c["distance"], max_distance, terms, c["text"])]
 
     def _load_corpus(self) -> dict:
         """Every chunk with its embedding and BM25 tokens, cached per engine."""
@@ -224,8 +270,9 @@ class RAGEngine:
         """Fuse cosine and BM25 rankings over the whole collection.
 
         The corpus is scored in memory, which suits local document sets of a
-        few thousand chunks. Chunks beyond max_distance are dropped after
-        fusion, so the cutoff still decides whether a question is answerable.
+        few thousand chunks. The distance cutoff (with its exact-term margin)
+        is applied after fusion, so it still decides whether a question is
+        answerable.
         """
         corpus = self._load_corpus()
         q_norm = math.sqrt(sum(x * x for x in query_embedding)) or 1.0
@@ -241,9 +288,10 @@ class RAGEngine:
         keyword_ranking = sorted((i for i in indices if keyword[i] > 0),
                                  key=lambda i: -keyword[i])
 
+        terms = exact_terms(query)
         chunks = []
         for i in reciprocal_rank_fusion([vector_ranking, keyword_ranking]):
-            if max_distance is not None and distances[i] > max_distance:
+            if not within_cutoff(distances[i], max_distance, terms, corpus["documents"][i]):
                 continue
             meta = corpus["metadatas"][i] or {}
             chunks.append({

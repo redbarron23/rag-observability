@@ -94,7 +94,9 @@ Retrieval and answer quality are evaluated separately.
 - Citations come from the LLM: Claude's native citations quote the cited text, and DeepSeek's are
   written by the model. Check that the cited section actually supports the answer.
 - Chunks with a cosine distance above `--max-distance` (default 0.6, measured on the bundled
-  corpus) are dropped; re-measure it on your own corpus rather than assuming it carries over.
+  corpus) are dropped, except that a chunk up to 0.1 further away is kept when it contains an
+  exact term from the question (`last_updated`, `0.47%`, "Ops Agent"). Re-measure the cutoff
+  on your own corpus rather than assuming it carries over.
 - Embeddings and the vector store stay local. Relevant retrieved text is sent to the configured
   provider when generating an answer; use documents approved for that destination.
 - `--retrieval hybrid` (on `query.py` and `evals.py`) fuses vector ranking with BM25 keyword

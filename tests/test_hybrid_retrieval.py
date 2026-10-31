@@ -6,7 +6,15 @@ import chromadb
 import pytest
 
 import evals
-from query import RAGEngine, bm25_scores, reciprocal_rank_fusion, tokenize
+from query import (
+    RAGEngine,
+    bm25_scores,
+    exact_terms,
+    matched_exact_terms,
+    reciprocal_rank_fusion,
+    tokenize,
+    within_cutoff,
+)
 
 # Fixed 2-d embeddings: the query embedding is [1, 0], so cosine distance
 # grows from "near" to "far".
@@ -98,3 +106,50 @@ def test_evals_cli_passes_retrieval_mode(monkeypatch):
         evals.main()
     assert exc.value.code == 0
     factory.assert_called_once_with(persist_dir="chroma_db", retrieval="hybrid")
+
+
+# ── Exact-term margin on the distance cutoff (#58) ─────────────────────
+
+def test_exact_terms_finds_identifiers_and_multiword_names():
+    assert exact_terms("What does the Ops Agent do?") == ["Ops Agent"]
+    assert exact_terms("What is last_updated used for?") == ["last_updated"]
+    assert exact_terms("Which cloud is at 0.47% coverage?") == ["0.47%"]
+    assert exact_terms("Is p95 above target?") == ["p95"]
+    # The leading question word is not part of a name.
+    assert exact_terms("Which Log Analytics tables move?") == ["Log Analytics"]
+
+
+def test_exact_terms_ignores_single_capitalised_words_and_short_numbers():
+    assert exact_terms("How many engineers work on the GCP team in Tier 1?") == []
+
+
+def test_matched_exact_terms_needs_whole_words():
+    assert matched_exact_terms(["Ops Agent"], "the ops\n agent is configured") == ["Ops Agent"]
+    assert matched_exact_terms(["Ops Agent"], "Ops Agents") == []
+    assert matched_exact_terms(["p95"], "p950") == []
+
+
+@pytest.mark.parametrize("mode", ["vector", "hybrid"])
+def test_exact_term_keeps_chunk_just_past_cutoff(engine_factory, mode):
+    # "middle" is at cosine distance 0.2; a 0.15 cutoff drops it unless the
+    # question names a term it contains.
+    engine = engine_factory(mode)
+    assert [c["id"] for c in engine.retrieve("coverage report", max_distance=0.15)] == ["near"]
+    kept = engine.retrieve("Where is 0.47% reported?", max_distance=0.15)
+    assert [c["id"] for c in kept] == ["near", "middle"]
+
+
+@pytest.mark.parametrize("mode", ["vector", "hybrid"])
+def test_exact_term_margin_is_bounded(engine_factory, mode):
+    # "far" (distance 1.0) contains "Ops Agent" but is well beyond cutoff + margin.
+    ids = [c["id"] for c in engine_factory(mode).retrieve("Ops Agent", max_distance=0.6)]
+    assert "far" not in ids
+
+
+def test_within_cutoff_rules():
+    assert within_cutoff(0.9, None, [], "")
+    assert not within_cutoff(None, 0.6, ["x_y"], "x_y")
+    assert within_cutoff(0.6, 0.6, [], "")
+    assert within_cutoff(0.65, 0.6, ["x_y"], "uses x_y")
+    assert not within_cutoff(0.65, 0.6, ["x_y"], "nothing")
+    assert not within_cutoff(0.75, 0.6, ["x_y"], "uses x_y")
