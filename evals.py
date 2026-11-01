@@ -39,7 +39,14 @@ from pathlib import Path
 
 import eval_artifact
 from eval_artifact import redact
-from query import DEFAULT_RETRIEVAL, N_RESULTS, RETRIEVAL_MODES, RAGEngine
+from query import (
+    DEFAULT_RETRIEVAL,
+    MAX_DISTANCE,
+    N_RESULTS,
+    RETRIEVAL_MODES,
+    RAGEngine,
+    kept_by_exact_term,
+)
 
 EVALS = [
     {
@@ -160,9 +167,12 @@ EVALS = [
         "expected_sections": [("programme/COST_SMOOTHING.md", "Plan")],
         "expected_facts": ["high-volume", "30 days"],
     },
-    # Short questions about a named thing embed poorly: the right chunk ranks
-    # first but sits just past the distance cutoff (~0.64). They pass because
-    # the chunk contains the exact term (query.EXACT_TERM_MARGIN).
+    # Short questions about a named thing embed poorly. These cases check the
+    # outcome (the question is answerable), not a mechanism: when they were
+    # added their best chunk sat just past the cutoff and the exact-term margin
+    # kept it, but corpus edits move distances. The margin itself is tested
+    # with fixed embeddings in tests/test_hybrid_retrieval.py, and evals.py
+    # reports which cases currently rely on it (margin_cases).
     {
         "id": "short-ops-agent",
         "question": "What does the Ops Agent do?",
@@ -586,6 +596,26 @@ def corpus_text(engine) -> str:
 RETRIEVE_N = 6  # number of chunks to retrieve for document and section checks
 
 
+def margin_support(chunks: list[dict], expected_sections: list[tuple[str, str]],
+                   max_distance: float | None = MAX_DISTANCE) -> list[str]:
+    """IDs of supporting chunks (an expected source and section) that only
+    the exact-term margin kept, i.e. beyond the plain distance cutoff."""
+    wanted = set(expected_sections)
+    return [c["id"] for c in chunks
+            if (c["source"], c.get("section")) in wanted and kept_by_exact_term(c, max_distance)]
+
+
+# The end-to-end set must keep at least one case whose evidence only the
+# exact-term margin retrieves (see main). Tests of unrelated CLI behaviour
+# with fake engines switch it off.
+REQUIRE_MARGIN_COVERAGE = True
+
+
+def margin_cases(records: list[dict]) -> list[str]:
+    """Answerable cases whose supporting evidence the exact-term margin kept."""
+    return [r["id"] for r in records if r.get("exact_term_margin")]
+
+
 def missing_evidence(chunks: list[dict], facts: list[str]) -> list[str]:
     """Expected facts that appear in none of the retrieved chunks' text.
 
@@ -653,6 +683,7 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
         # check, so also require the facts themselves in the retrieved text
         # (issue #72: a split section can return the wrong half).
         unsupported = missing_evidence(chunks, ev.get("expected_facts", []))
+        rescued = margin_support(chunks, ev["expected_sections"])
         evidence_ok = not unsupported
         evidence_failures += not evidence_ok
         ok = sources_ok and sections_ok and evidence_ok
@@ -687,6 +718,7 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
                            for (source, section), rank
                            in zip(ev["expected_sections"], ranks, strict=True)],
             first_relevant_rank=first_rank,
+            exact_term_margin=rescued,
         ))
 
         if ok:
@@ -699,6 +731,9 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
           f"{len(answerable)} cases")
     print("Supporting-section recall: " + ", ".join(
         f"@{cutoff} {hits}/{section_total}" for cutoff, hits in section_hits.items()))
+    rescued_cases = margin_cases(records)
+    print("Exact-term margin kept supporting evidence for: "
+          + (", ".join(rescued_cases) if rescued_cases else "no cases"))
 
     # Unanswerable questions: nothing should survive the distance cutoff,
     # except related context from allowed_sources that holds no evidence
@@ -928,6 +963,13 @@ def main() -> None:
 
     p1, f1 = run_retrieval_evals(engine, verbose=args.verbose, records=results["retrieval"])
     print(f"\nRetrieval results: {p1}/{p1 + f1} passed")
+    # Coverage floor: the end-to-end set must exercise the exact-term margin
+    # somewhere. Any single case may drift inside the cutoff after a corpus
+    # edit; if none relies on the margin any more, add a case that does.
+    margin_ok = not REQUIRE_MARGIN_COVERAGE or bool(margin_cases(results["retrieval"]))
+    if not margin_ok:
+        print("[FAIL] exact-term margin coverage: no answerable case's supporting "
+              "evidence was kept by the margin; add a case that needs it")
     print("\nHeld-out questions (reported separately; not used for tuning and "
           "not counted in the exit code)")
     hp1, hf1 = run_retrieval_evals(engine, args.verbose,
@@ -946,10 +988,10 @@ def main() -> None:
                                   include_answers=args.include_answers)
         print(f"Held-out full:      {hp2}/{hp2 + hf2} passed")
         print(f"\nCombined: {p1 + p2}/{p1 + p2 + f1 + f2} passed")
-        failures = f1 + f2
+        failures = f1 + f2 + (not margin_ok)
     else:
         print("(Run with --with-llm to also check facts, citations and declines in generated answers)")
-        failures = f1
+        failures = f1 + (not margin_ok)
 
     exit_code = 1 if failures else 0
     if args.output:

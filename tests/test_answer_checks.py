@@ -152,6 +152,7 @@ def test_full_evals_apply_the_new_checks(monkeypatch, capsys):
 
 
 def test_heldout_results_do_not_change_the_exit_code(monkeypatch, capsys):
+    monkeypatch.setattr(evals, "REQUIRE_MARGIN_COVERAGE", False)
     monkeypatch.setattr("sys.argv", ["evals.py"])
     monkeypatch.setattr(evals, "RAGEngine", lambda **kwargs: object())
     calls = []

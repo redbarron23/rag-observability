@@ -170,6 +170,11 @@ def section(cases: list[dict], retrieve_n: int) -> dict:
     sections = section_summary(cases, retrieve_n)
     if sections is not None:
         summary["supporting_section_recall"] = sections
+    if any("exact_term_margin" in c for c in cases):
+        # Cases whose supporting chunk only the exact-term margin kept; diff
+        # this across runs to see corpus edits move cases in or out of it.
+        summary["exact_term_margin_cases"] = [c["id"] for c in cases
+                                              if c.get("exact_term_margin")]
     if any("generation" in c for c in cases):
         summary["usage"] = usage_totals(cases)
     return {"summary": summary, "cases": cases}
