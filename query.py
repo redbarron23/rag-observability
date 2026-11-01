@@ -219,10 +219,47 @@ def format_citations(citations: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# ── Generation metadata ────────────────────────────────────────────────
+
+USAGE_FIELDS = ("input_tokens", "output_tokens",
+                "cache_creation_input_tokens", "cache_read_input_tokens")
+
+
+def anthropic_usage(response) -> tuple[dict | None, bool | None]:
+    """Token usage of a Messages API response, and whether a server-side
+    fallback model served it (None when the response doesn't say)."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None, None
+    counts = {f: getattr(usage, f, None) for f in USAGE_FIELDS}
+    counts = {f: v for f, v in counts.items() if isinstance(v, int)}
+    iterations = getattr(usage, "iterations", None)
+    fallback = (any(getattr(i, "type", None) == "fallback_message" for i in iterations)
+                if isinstance(iterations, list) else None)
+    return counts or None, fallback
+
+
+def openai_usage(response) -> dict | None:
+    """Token usage of an OpenAI-compatible chat completion, in Anthropic's field names."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    counts = {"input_tokens": getattr(usage, "prompt_tokens", None),
+              "output_tokens": getattr(usage, "completion_tokens", None)}
+    counts = {f: v for f, v in counts.items() if isinstance(v, int)}
+    return counts or None
+
+
 # ── RAG engine ─────────────────────────────────────────────────────────
 
 class RAGEngine:
     """Retrieve-and-generate over observability docs."""
+
+    # What the most recent answer()/answer_with_citations() call sent to the
+    # provider and got back: provider, requested and returned model IDs, stop
+    # reason and token usage (None where the provider didn't report them).
+    # evals.py reads it for its run artifact; the return shapes are unchanged.
+    last_generation: dict | None = None
 
     def __init__(self, persist_dir: str = PERSIST_DIR, retrieval: str = DEFAULT_RETRIEVAL,
                  embedder: SentenceTransformer | None = None):
@@ -394,6 +431,7 @@ class RAGEngine:
         when the provider has no native citations (DeepSeek); the answer text
         then carries the citations the model wrote.
         """
+        self.last_generation = None
         chunks = self.retrieve(query, n_results=n_results, max_distance=max_distance)
 
         if verbose:
@@ -406,6 +444,8 @@ class RAGEngine:
                 print("Corpus provenance unavailable; re-ingest to record it.")
 
         if not chunks:
+            self.last_generation = {"llm_called": False,
+                                    "reason": "no chunks retrieved, so no provider call"}
             return "No relevant documents found.", chunks, []
 
         if verbose:
@@ -438,8 +478,13 @@ class RAGEngine:
         if not model:
             model = PROVIDER_DEFAULT_MODELS.get(provider, DEFAULT_MODEL)
 
+        meta = {"llm_called": True, "provider": provider, "requested_model": model,
+                "response_model": None, "stop_reason": None, "usage": None,
+                "fallback_used": None}
+        self.last_generation = meta
+
         if provider == "anthropic":
-            return self._call_anthropic(query, chunks, model)
+            return self._call_anthropic(query, chunks, model, meta)
 
         # provider == "deepseek" (OpenAI-compatible): the prompt asks for
         # citations written into the answer text.
@@ -470,15 +515,22 @@ Context:
                 {"role": "user", "content": user_content},
             ],
         )
+        returned = getattr(response, "model", None)
+        meta["response_model"] = returned if isinstance(returned, str) else None
+        finish = getattr(response.choices[0], "finish_reason", None)
+        meta["stop_reason"] = finish if isinstance(finish, str) else None
+        meta["usage"] = openai_usage(response)
         return response.choices[0].message.content, None
 
     @staticmethod
-    def _call_anthropic(query: str, chunks: list[dict],
-                        model: str) -> tuple[str, list[dict]]:
+    def _call_anthropic(query: str, chunks: list[dict], model: str,
+                        meta: dict | None = None) -> tuple[str, list[dict]]:
         """Ask Claude with each chunk as a document with citations enabled.
 
         Each cited span of the answer is followed by a "(source: …, section
-        '…')" marker, so it displays like a prompt-cited answer.
+        '…')" marker, so it displays like a prompt-cited answer. When meta is
+        given, the returned model ID, stop reason and token usage are recorded
+        in it.
         """
         import anthropic
         client = anthropic.Anthropic()
@@ -506,6 +558,13 @@ Context:
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
+        if meta is not None:
+            # The model that served the answer: a fallback model when the
+            # requested one declined.
+            returned = getattr(response, "model", None)
+            meta["response_model"] = returned if isinstance(returned, str) else None
+            meta["stop_reason"] = response.stop_reason
+            meta["usage"], meta["fallback_used"] = anthropic_usage(response)
         if response.stop_reason == "refusal":
             return "The model declined to answer this question.", []
 

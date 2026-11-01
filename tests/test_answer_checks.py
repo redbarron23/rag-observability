@@ -156,7 +156,7 @@ def test_heldout_results_do_not_change_the_exit_code(monkeypatch, capsys):
     monkeypatch.setattr(evals, "RAGEngine", lambda **kwargs: object())
     calls = []
 
-    def fake(engine, verbose, answerable=None, unanswerable=None):
+    def fake(engine, verbose, answerable=None, unanswerable=None, records=None):
         calls.append(answerable)
         return (0, 3) if answerable is evals.HELDOUT_EVALS else (5, 0)
 
