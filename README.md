@@ -151,6 +151,11 @@ manual dispatch, in both retrieval modes (about $0.12 per mode per run), and nev
 an `ANTHROPIC_API_KEY` repository secret (`gh secret set ANTHROPIC_API_KEY`); without it the run is skipped.
 See [scheduled LLM evals](docs/guide.md#scheduled-llm-evals).
 
+For the planned obs-agent integration, keep documentation API contract tests and retrieval
+evaluations here. obs-agent owns its stub-based consumer tests and the real two-repo smoke test.
+See [test ownership and implementation order](https://github.com/redbarron23/obs-agent#testing-the-rag-integration)
+for the shared approach, including version pinning and independent CI runs.
+
 Follow the [open-source roadmap](https://github.com/users/redbarron23/projects/2).
 
 ## License
