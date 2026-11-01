@@ -1,5 +1,5 @@
 # Full generation evals (python evals.py --with-llm) against Claude.
-# Each run makes 21 Anthropic API calls per retrieval mode (about $0.12 per mode).
+# Each run makes about 38 Anthropic API calls per retrieval mode (about $0.27 per mode).
 # Runs weekly and on manual dispatch only: never on pull_request, so forks
 # cannot reach the API key and PRs do not spend money.
 
@@ -89,62 +89,67 @@ jobs:
         run: |
           mkdir -p eval-results
           set +e
-          python evals.py --with-llm --verbose --retrieval "$RETRIEVAL" 2>&1 | tee "eval-results/evals-$RETRIEVAL.log"
+          python evals.py --with-llm --verbose --retrieval "$RETRIEVAL" \
+            --output "eval-results/evals-$RETRIEVAL.json" 2>&1 | tee "eval-results/evals-$RETRIEVAL.log"
           status=${PIPESTATUS[0]}
           echo "exit-code=$status" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Write results JSON and job summary
+      - name: Write job summary from the run artifact
         if: always() && steps.evals.outcome != 'skipped'
         env:
           RETRIEVAL: ${{ matrix.retrieval }}
           EXIT_CODE: ${{ steps.evals.outputs.exit-code }}
-          COMMIT: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: python
         run: |
-          import datetime, json, os, re
+          import json, os
           from pathlib import Path
 
+          # evals.py --output wrote the artifact (schema in eval_artifact.py);
+          # the exit code stays the source of truth for pass/fail.
           mode = os.environ["RETRIEVAL"]
           exit_code = os.environ.get("EXIT_CODE") or "missing"
-          log_path = Path(f"eval-results/evals-{mode}.log")
-          log = log_path.read_text() if log_path.exists() else ""
+          path = Path(f"eval-results/evals-{mode}.json")
+          lines = [f"## LLM evals: {mode} retrieval - {'PASS' if exit_code == '0' else 'FAIL'}", ""]
+          if not path.exists():
+              lines.append(f"- No run artifact (evals.py exited with {exit_code}); see the log artifact.")
+          else:
+              a = json.loads(path.read_text())
+              blocks = [a["results"]["retrieval"], a["results"]["full"]]
+              ran = [b for b in blocks if "summary" in b]
+              passed = sum(b["summary"]["passed"] for b in ran)
+              total = sum(b["summary"]["total"] for b in ran)
+              failing = sorted({c["id"] for b in ran for c in b["cases"] if c["status"] != "pass"})
 
-          def ratio(label):
-              m = re.search(rf"^{label}:\s+(\d+)/(\d+)", log, re.M)
-              return {"passed": int(m[1]), "total": int(m[2])} if m else None
+              def dims(block):
+                  if "summary" not in block:
+                      return "not run"
+                  return ", ".join(f"{name} {d['passed']}/{d['passed'] + d['failed']}"
+                                   f" ({d['unevaluated']} unevaluated)"
+                                   for name, d in block["summary"]["by_dimension"].items())
 
-          dims = re.search(r"^By dimension: (.+)$", log, re.M)
-          cases = [{"id": cid, "status": st}
-                   for st, cid in re.findall(r"^\[(PASS|FAIL)\] (\S+)", log, re.M)]
-          result = {
-              "retrieval": mode,
-              "model": "claude-sonnet-5-5 (query.py default)",
-              "passed": exit_code == "0",
-              "exit_code": exit_code,
-              "commit": os.environ["COMMIT"],
-              "run_url": os.environ["RUN_URL"],
-              "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-              "retrieval_results": ratio("Retrieval results"),
-              "full_results": ratio("Full results"),
-              "combined": ratio("Combined"),
-              "by_dimension": dims[1] if dims else None,
-              "cases": cases,
-          }
-          Path(f"eval-results/evals-{mode}.json").write_text(json.dumps(result, indent=2) + "\n")
-
-          combined = result["combined"]
-          failing = sorted({c["id"] for c in cases if c["status"] == "FAIL"})
-          lines = [
-              f"## LLM evals: {mode} retrieval - {'PASS' if result['passed'] else 'FAIL'}",
-              "",
-              f"- Combined: {combined['passed']}/{combined['total']}" if combined
-              else "- Combined: not reported (see log artifact)",
-              f"- By dimension: {result['by_dimension'] or 'not reported'}",
-              f"- Failing cases: {', '.join(failing) if failing else 'none'}",
-              "",
-          ]
+              heldout = {name: b for name, b in a["heldout"].items()
+                         if isinstance(b, dict) and "summary" in b}
+              usage = a["results"]["full"].get("summary", {}).get("usage", {})
+              gen = a["generation"]
+              lines += [
+                  f"- Combined: {passed}/{total}",
+                  f"- By dimension (full): {dims(a['results']['full'])}",
+                  f"- Provider errors: {a['results']['full'].get('summary', {}).get('provider_errors', 'n/a')}",
+                  f"- Failing cases: {', '.join(failing) if failing else 'none'}",
+                  "- Held-out (not in the exit code): "
+                  + ", ".join(f"{name} {b['summary']['passed']}/{b['summary']['total']}"
+                              for name, b in heldout.items()),
+                  f"- Model: requested {gen.get('requested_model')}, returned "
+                  f"{', '.join(gen.get('response_models') or []) or 'not reported'}",
+                  f"- Tokens (main set): {usage.get('tokens') or 'not reported'} over "
+                  f"{usage.get('calls_with_usage', 0)}/{usage.get('provider_calls', 0)} calls",
+                  f"- Commit: {a['code'].get('git_sha')}"
+                  + (" (dirty)" if a["code"].get("git_dirty") else ""),
+                  f"- Corpus SHA-256: {a['corpus'].get('corpus_sha256') or 'unavailable'}",
+              ]
+          lines += [f"- Run: {os.environ['RUN_URL']}", ""]
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
               f.write("\n".join(lines) + "\n")
 

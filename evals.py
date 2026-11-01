@@ -24,12 +24,21 @@ The answer checks are heuristics: they catch swapped fact pairs, cited
 sections that weren't retrieved, and a decline followed by an unsupported
 name or number, but passing them is not proof of factual correctness.
 Held-out questions are reported separately and don't affect the exit code.
+
+--output PATH also writes a versioned JSON run artifact (configuration,
+per-case outcomes, timings, token usage) for comparing runs; see
+eval_artifact.py and "Comparing eval runs" in docs/guide.md.
 """
 
 import argparse
+import json
 import re
 import sys
+import time
+from pathlib import Path
 
+import eval_artifact
+from eval_artifact import redact
 from query import DEFAULT_RETRIEVAL, N_RESULTS, RETRIEVAL_MODES, RAGEngine
 
 EVALS = [
@@ -595,12 +604,25 @@ def supporting_section_ranks(chunks: list[dict],
     ]
 
 
+def case_record(ev: dict, kind: str, ok: bool, dimensions: dict, problems: list[str],
+                started: float, **extra) -> dict:
+    """One case's outcome for the run artifact (issue #39): no document text,
+    and no answer unless the caller adds it."""
+    return {"id": ev["id"], "kind": kind, "status": "pass" if ok else "fail",
+            "dimensions": dimensions, "problems": [redact(p) for p in problems],
+            "duration_seconds": round(time.perf_counter() - started, 3), **extra}
+
+
 def run_retrieval_evals(engine: RAGEngine, verbose: bool,
                         answerable: list[dict] | None = None,
-                        unanswerable: list[dict] | None = None) -> tuple[int, int]:
-    """Run retrieval-only evals — no LLM API call needed."""
+                        unanswerable: list[dict] | None = None,
+                        records: list[dict] | None = None) -> tuple[int, int]:
+    """Run retrieval-only evals — no LLM API call needed.
+
+    Each case's outcome is appended to records when it is given."""
     answerable = EVALS if answerable is None else answerable
     unanswerable = UNANSWERABLE_EVALS if unanswerable is None else unanswerable
+    records = [] if records is None else records
     passed = 0
     failed = 0
     source_passed = 0
@@ -612,6 +634,7 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
     print("=" * 60)
 
     for ev in answerable:
+        started = time.perf_counter()
         chunks = engine.retrieve(ev["question"], n_results=RETRIEVE_N)
         retrieved_sources = {c["source"] for c in chunks}
 
@@ -650,6 +673,22 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
             if unsupported:
                 print(f"       Facts not in retrieved text: {unsupported}")
 
+        records.append(case_record(
+            ev, "answerable", ok,
+            {"sources": sources_ok, "sections": sections_ok, "evidence": evidence_ok},
+            ([f"missing sources: {missing}"] if missing else [])
+            + [f"section not in top-{RETRIEVE_N}: {source} / {section}"
+               for (source, section), rank in zip(ev["expected_sections"], ranks, strict=True)
+               if rank is None or rank > RETRIEVE_N]
+            + ([f"facts not in retrieved text: {unsupported}"] if unsupported else []),
+            started,
+            retrieved_sources=sorted(retrieved_sources),
+            section_ranks=[{"source": source, "section": section, "rank": rank}
+                           for (source, section), rank
+                           in zip(ev["expected_sections"], ranks, strict=True)],
+            first_relevant_rank=first_rank,
+        ))
+
         if ok:
             passed += 1
         else:
@@ -665,8 +704,15 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
     # except related context from allowed_sources that holds no evidence
     # about the subject (none of absent_terms).
     for ev in unanswerable:
+        started = time.perf_counter()
         chunks = engine.retrieve(ev["question"], n_results=RETRIEVE_N)
-        ok = not unanswerable_problems(chunks, ev)
+        rejected = unanswerable_problems(chunks, ev)
+        ok = not rejected
+        records.append(case_record(
+            ev, "unanswerable", ok, {"rejection": ok}, rejected, started,
+            kept=[{"source": c["source"], "distance": c.get("distance"),
+                   "allowed": c["source"] in ev.get("allowed_sources", [])} for c in chunks],
+        ))
 
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {ev['id']}")
@@ -685,13 +731,40 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
     return passed, failed
 
 
+def generation_record(engine) -> dict:
+    """A copy of the engine's metadata for its last provider call."""
+    meta = getattr(engine, "last_generation", None)
+    if not isinstance(meta, dict):
+        return {"llm_called": None,
+                "unavailable_reason": "the engine did not report generation metadata"}
+    meta = dict(meta)
+    if meta.get("llm_called") and meta.get("usage") is None:
+        meta["usage_unavailable_reason"] = "the provider response had no token usage"
+    return meta
+
+
 def run_full_evals(engine: RAGEngine, verbose: bool,
                    answerable: list[dict] | None = None,
-                   unanswerable: list[dict] | None = None) -> tuple[int, int]:
-    """Run full evals — retrieval + LLM answer + fact and citation checks."""
+                   unanswerable: list[dict] | None = None,
+                   records: list[dict] | None = None,
+                   include_answers: bool = False) -> tuple[int, int]:
+    """Run full evals — retrieval + LLM answer + fact and citation checks.
+
+    Each case's outcome is appended to records when it is given; answers are
+    only recorded with include_answers."""
     answerable = EVALS if answerable is None else answerable
     unanswerable = UNANSWERABLE_EVALS if unanswerable is None else unanswerable
+    records = [] if records is None else records
     corpus = corpus_text(engine)
+
+    def error_record(ev, kind, dimensions, error, started):
+        return case_record(ev, kind, False, dict.fromkeys(dimensions), [], started,
+                           status="error",
+                           error={"type": type(error).__name__, "message": redact(str(error))},
+                           generation=generation_record(engine))
+
+    def answer_fields(answer):
+        return {"answer": redact(answer)} if include_answers else {}
     passed = 0
     failed = 0
     dimension_failures = {"sources": 0, "facts": 0, "citations": 0, "declines": 0}
@@ -702,12 +775,15 @@ def run_full_evals(engine: RAGEngine, verbose: bool,
     print("=" * 60)
 
     for ev in answerable:
+        started = time.perf_counter()
         try:
             answer, chunks, citations = engine.answer_with_citations(
                 ev["question"], n_results=N_RESULTS, verbose=False,
             )
         except Exception as e:  # noqa: BLE001 — any provider/SDK error fails the case
             print(f"[FAIL] {ev['id']} — LLM error: {e}")
+            records.append(error_record(ev, "answerable", ("sources", "facts", "citations"),
+                                        e, started))
             failed += 1
             answerable_errors += 1
             continue
@@ -753,6 +829,19 @@ def run_full_evals(engine: RAGEngine, verbose: bool,
                 print(f"       Citations: {problem}")
             print(f"       A: {answer[:300]}")
 
+        records.append(case_record(
+            ev, "answerable", ok,
+            {"sources": sources_ok, "facts": facts_ok, "citations": citations_ok},
+            ([f"missing sources: {missing_sources}"] if missing_sources else [])
+            + ([f"missing facts: {missing_facts}"] if missing_facts else [])
+            + unrelated + bad_citations,
+            started,
+            retrieved_sources=sorted(retrieved_sources),
+            native_citations=citations is not None,
+            generation=generation_record(engine),
+            **answer_fields(answer),
+        ))
+
         if ok:
             passed += 1
         else:
@@ -761,6 +850,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool,
     # Unanswerable questions run without the distance cutoff, so the model
     # sees the nearest chunks and has to decline on its own.
     for ev in unanswerable:
+        started = time.perf_counter()
         try:
             answer, chunks = engine.answer(
                 ev["question"], n_results=N_RESULTS, verbose=False,
@@ -768,6 +858,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool,
             )
         except Exception as e:  # noqa: BLE001 — any provider/SDK error fails the case
             print(f"[FAIL] {ev['id']} — LLM error: {e}")
+            records.append(error_record(ev, "unanswerable", ("declines",), e, started))
             failed += 1
             unanswerable_errors += 1
             continue
@@ -785,6 +876,13 @@ def run_full_evals(engine: RAGEngine, verbose: bool,
             for problem in bad_decline:
                 print(f"       Declines: {problem}")
             print(f"       A: {answer[:300]}")
+
+        records.append(case_record(
+            ev, "unanswerable", ok, {"declines": ok}, bad_decline, started,
+            retrieved_sources=sorted({c["source"] for c in chunks}),
+            generation=generation_record(engine),
+            **answer_fields(answer),
+        ))
 
         if ok:
             passed += 1
@@ -813,24 +911,39 @@ def main() -> None:
                         help="Chroma persistence directory")
     parser.add_argument("--retrieval", default=DEFAULT_RETRIEVAL, choices=RETRIEVAL_MODES,
                         help=f"Retrieval mode to evaluate (default: {DEFAULT_RETRIEVAL})")
+    parser.add_argument("--output", "-o", metavar="PATH",
+                        help="Also write a JSON run artifact (configuration, per-case "
+                             "outcomes, timings, token usage) to PATH")
+    parser.add_argument("--include-answers", action="store_true",
+                        help="With --output and --with-llm, also record each generated "
+                             "answer (off by default: answers quote the corpus)")
     args = parser.parse_args()
+    if args.include_answers and not args.output:
+        parser.error("--include-answers needs --output")
 
+    started_at, started = eval_artifact.utc_now(), time.perf_counter()
     engine = RAGEngine(persist_dir=args.persist_dir, retrieval=args.retrieval)
     print(f"Retrieval mode: {args.retrieval}\n")
+    results: dict[str, list[dict]] = {"retrieval": [], "heldout_retrieval": []}
 
-    p1, f1 = run_retrieval_evals(engine, verbose=args.verbose)
+    p1, f1 = run_retrieval_evals(engine, verbose=args.verbose, records=results["retrieval"])
     print(f"\nRetrieval results: {p1}/{p1 + f1} passed")
     print("\nHeld-out questions (reported separately; not used for tuning and "
           "not counted in the exit code)")
     hp1, hf1 = run_retrieval_evals(engine, args.verbose,
-                                   HELDOUT_EVALS, HELDOUT_UNANSWERABLE_EVALS)
+                                   HELDOUT_EVALS, HELDOUT_UNANSWERABLE_EVALS,
+                                   records=results["heldout_retrieval"])
     print(f"\nHeld-out retrieval: {hp1}/{hp1 + hf1} passed")
 
     if args.with_llm:
-        p2, f2 = run_full_evals(engine, verbose=args.verbose)
+        results["full"], results["heldout_full"] = [], []
+        p2, f2 = run_full_evals(engine, verbose=args.verbose, records=results["full"],
+                                include_answers=args.include_answers)
         print(f"Full results:       {p2}/{p2 + f2} passed")
         hp2, hf2 = run_full_evals(engine, args.verbose,
-                                  HELDOUT_EVALS, HELDOUT_UNANSWERABLE_EVALS)
+                                  HELDOUT_EVALS, HELDOUT_UNANSWERABLE_EVALS,
+                                  records=results["heldout_full"],
+                                  include_answers=args.include_answers)
         print(f"Held-out full:      {hp2}/{hp2 + hf2} passed")
         print(f"\nCombined: {p1 + p2}/{p1 + p2 + f1 + f2} passed")
         failures = f1 + f2
@@ -838,7 +951,21 @@ def main() -> None:
         print("(Run with --with-llm to also check facts, citations and declines in generated answers)")
         failures = f1
 
-    sys.exit(1 if failures else 0)
+    exit_code = 1 if failures else 0
+    if args.output:
+        artifact = eval_artifact.build_artifact(
+            engine=engine, mode=args.retrieval, retrieve_n=RETRIEVE_N,
+            with_llm=args.with_llm, include_answers=args.include_answers,
+            started_at=started_at, finished_at=eval_artifact.utc_now(),
+            duration_seconds=time.perf_counter() - started, exit_code=exit_code,
+            results=results,
+        )
+        path = Path(args.output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
+        print(f"\nWrote run artifact: {path}")
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

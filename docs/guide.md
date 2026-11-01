@@ -197,6 +197,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `api.py` | Retrieval-only local HTTP API (`POST /retrieve`, `GET /health`); no provider key. See [HTTP API](http-api.md) |
 | `evals.py` | 25 answerable and 5 unanswerable cases plus 8 held-out: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
+| `eval_artifact.py` | Builds the versioned JSON run artifact that `evals.py --output` writes ([comparing eval runs](#comparing-eval-runs)) |
 | `tests/` | Unit tests for loading, chunking, provider validation and eval fact matching (`pytest`) |
 | `.github/workflows/ci.yml` | CI: lint (`ruff check`), unit tests, ingest sample corpus, retrieval evals |
 | `.github/workflows/llm-evals.yml` | Weekly and manual full evals (`--with-llm`) in both retrieval modes; needs the `ANTHROPIC_API_KEY` secret ([scheduled LLM evals](#scheduled-llm-evals)) |
@@ -489,10 +490,47 @@ Retrieval-only evals run in CI and exit non-zero on any failure, including missi
 
 - **What it runs:** ingest of the sample corpus, then the full evals once per retrieval mode (`vector` and `hybrid`) as separate matrix jobs.
 - **Manual runs:** Actions → LLM evals → Run workflow, or `gh workflow run llm-evals.yml -f retrieval=vector` (`vector`, `hybrid` or `both`, the default).
-- **Cost:** 21 API calls, about $0.12 per mode per run, so about $0.24 for a weekly run of both modes (roughly $1 a month).
-- **Results:** each mode uploads an `llm-evals-<mode>` artifact (kept 90 days) with the full log and a JSON summary (pass/fail, totals, per-dimension scores, per-case status, commit). A short summary appears on the run page.
+- **Cost:** 38 API calls (30 main plus 8 held-out), about $0.27 per mode per run at the [latest results](#latest-results) token counts, so about $0.54 for a weekly run of both modes (roughly $2.30 a month). The run artifact records the actual token usage.
+- **Results:** each mode uploads an `llm-evals-<mode>` artifact (kept 90 days) with the full log and the [run artifact](#comparing-eval-runs) `evals-<mode>.json` written by `evals.py --output`. The short summary on the run page is read from that JSON.
 - **Failures:** any failing case fails the job, so GitHub notifies the maintainer through its usual failed-workflow notifications.
 - **Setup:** the workflow needs an `ANTHROPIC_API_KEY` repository secret. Add it once with `gh secret set ANTHROPIC_API_KEY` (it prompts for the value). Without it, the workflow skips the evals with a notice instead of failing.
+
+### Comparing eval runs
+
+`python evals.py --output run.json` (with or without `--with-llm`) also writes a JSON run artifact. The console output is unchanged. The schema is versioned (`schema_version`, currently 1) and built in [`eval_artifact.py`](../eval_artifact.py):
+
+| Key | Contents |
+|---|---|
+| `run` | Start and finish time (UTC), duration, `with_llm`, `include_answers`, exit code |
+| `code` | `git_sha`, and `git_dirty` when tracked files have local changes |
+| `corpus` | The index's identity from its manifest: corpus SHA-256, ingest time, collection, chunk and document counts (no local paths) |
+| `embedding` | Model and revision recorded with the index, and the locally installed revision and sentence-transformers version |
+| `retrieval` | Mode, k for the retrieval checks and for generation, distance cutoff, exact-term margin, split-section limit, and the hybrid constants in hybrid mode |
+| `generation` | Provider, requested model, the model IDs the provider **returned**, and how many calls a fallback model served |
+| `results.retrieval`, `results.full` | A summary (passed, failed, provider errors, per-dimension passed/failed/unevaluated, section recall, token totals) and one record per case: status (`pass`, `fail` or `error`), dimension results (`null` when a provider error left them unevaluated), problems, error type and message, duration, retrieved source paths, and the provider call's model, stop reason and token usage |
+| `heldout` | The same blocks for the held-out set, kept apart and marked `counts_toward_exit_code: false` |
+
+Anything that can't be determined is `null` with a reason beside it (for example `embedding.indexed_revision_unavailable_reason`, `generation.unavailable_reason` on a retrieval-only run, or `usage_unavailable_reason` when a response has no usage). Nothing is filled in from defaults. The artifact never holds API keys: provider error messages are scrubbed of the key environment variables' values. It holds no chunk text, and holds answers only when you pass `--include-answers`, because answers quote the corpus. Problem messages can quote the failing phrase, as the console does, for example the unsupported sentence after a decline.
+
+To compare two runs, check first that they evaluated the same thing, then diff the cases:
+
+```bash
+python evals.py --output runs/before.json            # e.g. on main
+python evals.py --output runs/after.json             # on your branch
+jq '{code, corpus: .corpus.corpus_sha256, embedding: .embedding.indexed, retrieval, generation}' runs/before.json runs/after.json
+outcomes='.results | to_entries[] | .key as $set | .value.cases[]? | "\($set)\t\(.id)\t\(.status)"'
+diff <(jq -r "$outcomes" runs/before.json | sort) <(jq -r "$outcomes" runs/after.json | sort)
+```
+
+A difference in `code.git_sha` with the same corpus, embedding and retrieval settings points at the code. A different `corpus.corpus_sha256` or embedding revision means the index changed, and retrieval differences may come from that rather than from the code. Compare held-out results the same way under `.heldout`, but don't tune against them.
+
+Retrieval-only runs are deterministic for a given index, code revision and embedding stack. Full runs are not reproducible, even with every recorded field equal:
+
+- **Sampling:** the provider samples each answer, so the same prompt can give a differently worded answer that passes or fails a heuristic check. Treat a single-case flip as noise until it repeats.
+- **Model updates:** a model alias can be served by an updated snapshot, and the server-side refusal fallback can answer with a different model. `generation.response_models` and each case's `generation.response_model` show what actually answered; compare them before blaming the code.
+- **Provider-side behaviour:** citation segmentation, safety classifiers, rate limits and outages are outside the repository. Provider errors are recorded per case as `error`, with their dimensions unevaluated.
+
+Token counts vary with the answer length and are reported as measured, not estimated.
 
 ---
 
@@ -535,6 +573,9 @@ python evals.py --verbose
 
 # Full evals with fact, citation and decline checks (requires API key)
 python evals.py --with-llm
+
+# Also write a JSON run artifact for comparing runs (see Comparing eval runs)
+python evals.py --with-llm --output runs/$(date +%F)-vector.json
 ```
 
 ## Data handling
