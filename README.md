@@ -111,8 +111,8 @@ Retrieval and answer quality are evaluated separately.
 - Evals cover 25 answerable questions (expected sources, supporting sections, facts stated in the
   right pairs, and cited sections that were actually retrieved) and five the corpus can't answer
   (the model must decline without guessing), plus eight held-out questions not used for tuning.
-  With Claude Sonnet 5.5, hybrid retrieval passes all of them and vector retrieval misses one
-  ([latest results](docs/guide.md#latest-results), [#72](https://github.com/redbarron23/rag-observability/issues/72)).
+  With Claude Sonnet 5.5 both retrieval modes pass all of them
+  ([latest results](docs/guide.md#latest-results)).
   The answer checks are heuristics, not proof of correctness. Passing on this small corpus
   does not establish quality on an unseen estate; adapt the eval cases for your own documents.
 - Citations come from the LLM: Claude's native citations quote the cited text, and DeepSeek's are

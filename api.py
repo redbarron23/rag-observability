@@ -243,7 +243,10 @@ class RetrievalService:
             "section": c["section"],
             "distance": c["distance"],
             # Kept only by the exact-term margin beyond max_distance.
-            "exact_term_match": c["distance"] is not None and c["distance"] > max_distance,
+            "exact_term_match": (c["distance"] is not None and c["distance"] > max_distance
+                                 and "expanded_from" not in c),
+            # Appended because a ranked hit is in the same split section (#72).
+            "expanded_from": c.get("expanded_from"),
         } for rank, c in enumerate(chunks, start=1)]
         return {
             "query": {"question": question, "k": k, "max_distance": max_distance,
