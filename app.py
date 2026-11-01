@@ -9,17 +9,21 @@ from chromadb.errors import NotFoundError
 from ingest import ingest_documents, save_uploaded_documents
 from query import (
     DEFAULT_PROVIDER,
+    DEFAULT_RETRIEVAL,
     MAX_DISTANCE,
     N_RESULTS,
     PERSIST_DIR,
     PROVIDER_DEFAULT_MODELS,
+    RETRIEVAL_MODES,
     RAGEngine,
+    chunk_title,
 )
 
 
 @st.cache_resource
-def load_engine(persist_dir: str) -> RAGEngine:
-    return RAGEngine(persist_dir=persist_dir)
+def load_engine(persist_dir: str, retrieval: str) -> RAGEngine:
+    # Cached per (index directory, retrieval mode); Reload index clears every entry.
+    return RAGEngine(persist_dir=persist_dir, retrieval=retrieval)
 
 
 st.set_page_config(page_title="rag-observability", page_icon="🔎", layout="wide")
@@ -29,6 +33,11 @@ st.caption("Ask a question, inspect the evidence, and optionally generate a cite
 with st.sidebar:
     st.header("Retrieval settings")
     persist_dir = st.text_input("Index directory", value=PERSIST_DIR)
+    retrieval = st.selectbox(
+        "Retrieval mode", RETRIEVAL_MODES, index=RETRIEVAL_MODES.index(DEFAULT_RETRIEVAL),
+        help="vector ranks by embedding similarity; hybrid also uses BM25 keyword matching, "
+             "which helps with exact terms such as figures and product names.",
+    )
     n_results = st.slider("Maximum chunks", min_value=1, max_value=12, value=N_RESULTS)
     max_distance = st.slider(
         "Maximum distance", min_value=0.0, max_value=2.0, value=MAX_DISTANCE, step=0.05,
@@ -86,19 +95,20 @@ if find_sources or generate:
     else:
         try:
             with st.spinner("Searching documents…" if find_sources else "Generating answer…"):
-                engine = load_engine(persist_dir)
+                engine = load_engine(persist_dir, retrieval)
                 started = perf_counter()
                 if generate:
-                    answer, chunks = engine.answer(
+                    answer, chunks, citations = engine.answer_with_citations(
                         question.strip(), n_results=n_results, max_distance=max_distance,
                     )
                 else:
                     chunks = engine.retrieve(
                         question.strip(), n_results=n_results, max_distance=max_distance,
                     )
-                    answer = None
+                    answer, citations = None, None
                 st.session_state.result = {
                     "question": question.strip(), "answer": answer, "chunks": chunks,
+                    "citations": citations, "retrieval": retrieval,
                     "seconds": perf_counter() - started,
                     "n_results": n_results, "max_distance": max_distance,
                 }
@@ -111,11 +121,19 @@ if result := st.session_state.get("result"):
     st.subheader(result["question"])
     st.caption(
         f"{len(result['chunks'])} chunks · {result['seconds']:.2f}s "
-        f"(excludes initial model loading) · top {result['n_results']} "
+        f"(excludes initial model loading) · {result['retrieval']} retrieval "
+        f"· top {result['n_results']} "
         f"· distance ≤ {result['max_distance']:g}"
     )
     if result["answer"] is not None:
         st.markdown(result["answer"])
+    if citations := result["citations"]:
+        # Claude's native citations quote the exact supporting text; DeepSeek returns None.
+        with st.expander(f"Quoted citations ({len(citations)})"):
+            for number, citation in enumerate(citations, start=1):
+                quote = " ".join(citation["cited_text"].split())
+                st.markdown(f"**[{number}] {chunk_title(citation)}** · chunk {citation['chunk']}")
+                st.text(quote)
     if not result["chunks"]:
         st.info("No relevant documents found. Try rephrasing or adjusting retrieval settings.")
     else:

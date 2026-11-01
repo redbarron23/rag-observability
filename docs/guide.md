@@ -271,7 +271,7 @@ Chunks with a cosine distance above `--max-distance` (default `0.6`; 0 = identic
 
 ### Hybrid retrieval (opt-in)
 
-`--retrieval hybrid` adds keyword matching for exact terms that MiniLM embeddings blur, such as figures (`0.47%`), product names (`Ops Agent`) and tag names (`cost-centre`). It scores every chunk twice, by cosine distance and by [BM25](https://en.wikipedia.org/wiki/Okapi_BM25) over keyword tokens (decimals, percentages and hyphenated names stay whole), then merges the two rankings with reciprocal rank fusion (`k = 60`). Chunks with no query term get no keyword rank. The `--max-distance` cutoff still applies to every fused chunk, so a keyword match alone can't make an unanswerable question answerable. Hybrid mode loads the collection into memory on first use and scores it in pure Python, which suits local document sets of a few thousand chunks. BM25 is implemented in `query.py`; no extra dependency is needed.
+`--retrieval hybrid` adds keyword matching for exact terms that MiniLM embeddings blur, such as figures (`0.47%`), product names (`Ops Agent`) and tag names (`cost-centre`). It scores every chunk twice, by cosine distance and by [BM25](https://en.wikipedia.org/wiki/Okapi_BM25) over keyword tokens (decimals, percentages and hyphenated names stay whole), then merges the two rankings with reciprocal rank fusion (`k = 60`). Chunks with no query term get no keyword rank. The `--max-distance` cutoff still applies to every fused chunk, so a keyword match alone can't make an unanswerable question answerable. The web interface has the same choice as a **Retrieval mode** selector in its sidebar. Hybrid mode loads the collection into memory on first use and scores it in pure Python, which suits local document sets of a few thousand chunks. BM25 is implemented in `query.py`; no extra dependency is needed.
 
 Retrieval evals on the bundled corpus (top-6, 0.6 cutoff):
 
@@ -314,7 +314,7 @@ Uses `anthropic.Anthropic().beta.messages.create()` with the `system` parameter 
 
 The Anthropic path uses Claude's native citations instead of asking the model to write them. Each retrieved chunk is sent as a plain-text `document` content block with `citations: {"enabled": true}` and a title of `<source>, section '<Section>'`, followed by the question as a text block. The response arrives split into text blocks (thinking blocks are skipped); each cited block carries citations giving the exact cited text and the index of the document it came from. `_call_anthropic()` maps each citation back to its chunk's source and section, and appends a `(source: <document>.md, section '<Section>')` marker after each cited block, so the answer looks the same as a prompt-cited one in the CLI and the web interface.
 
-`RAGEngine.answer_with_citations()` returns `(answer, chunks, citations)`, where each citation is a dict with `source`, `section`, `chunk` (1-based rank) and `cited_text`. `citations` is `None` for DeepSeek. `answer()` keeps returning `(answer, chunks)`. The CLI prints a numbered **Citations** list with the quoted text after an Anthropic answer.
+`RAGEngine.answer_with_citations()` returns `(answer, chunks, citations)`, where each citation is a dict with `source`, `section`, `chunk` (1-based rank) and `cited_text`. `citations` is `None` for DeepSeek. `answer()` keeps returning `(answer, chunks)`. The CLI prints a numbered **Citations** list with the quoted text after an Anthropic answer, and the web interface lists the full quotes in a **Quoted citations** expander under the answer.
 
 ### DeepSeek path (OpenAI-compatible)
 
