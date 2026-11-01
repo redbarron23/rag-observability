@@ -1,0 +1,31 @@
+{
+  "description": "k is outside 1-20. Request validation failures are 400 invalid_request.",
+  "setup": "Fictional corpus ingested; sources unchanged.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0"
+    },
+    "body": {
+      "question": "Which tags are required?",
+      "k": 50
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "schemas/error-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "error": {
+        "code": "invalid_request",
+        "message": "'k' must be an integer from 1 to 20."
+      }
+    }
+  }
+}

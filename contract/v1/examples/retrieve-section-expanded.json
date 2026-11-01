@@ -1,0 +1,77 @@
+{
+  "description": "k is 1, but the ranked hit's section was split in two at ingestion, so the other half is appended with expanded_from set. Expanded hits can exceed k and max_distance.",
+  "setup": "Fictional corpus ingested; sources unchanged.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0"
+    },
+    "body": {
+      "question": "How do I investigate consumer lag?",
+      "k": 1
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "schemas/retrieve-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "query": {
+        "question": "How do I investigate consumer lag?",
+        "k": 1,
+        "max_distance": 0.6,
+        "retrieval": "vector"
+      },
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "runbooks/queue-backlog.md#0",
+          "text": "Queue Backlog Runbook > Investigation\n\nStart with consumer lag on the orders queue. Compare the publish rate with the acknowledge rate for the last hour, and note when the two lines diverged. A growing gap with a steady publish rate points at slow consumers rather than a traffic spike, so check consumer CPU and recent deployments before scaling anything.",
+          "source": "runbooks/queue-backlog.md",
+          "file": "queue-backlog.md",
+          "section": "Investigation",
+          "distance": 0.0,
+          "exact_term_match": false,
+          "expanded_from": null
+        },
+        {
+          "rank": 2,
+          "chunk_id": "runbooks/queue-backlog.md#1",
+          "text": "Queue Backlog Runbook > Investigation\n\nThen open the dead-letter queue. Group the parked messages by error type and compare the first failure time with the divergence you found above. Replaying parked messages is safe only after the cause is fixed; record the replay in the incident channel so the next responder knows it already happened.",
+          "source": "runbooks/queue-backlog.md",
+          "file": "queue-backlog.md",
+          "section": "Investigation",
+          "distance": 1.0,
+          "exact_term_match": false,
+          "expanded_from": "runbooks/queue-backlog.md#0"
+        }
+      ],
+      "corpus": {
+        "provenance": "available",
+        "corpus_sha256": "6cae9c94af4600609f084ee2ccd0b60a3d8efb1a7f01310c0f0d7be8fdd583b9",
+        "ingested_at": "2026-01-15T09:30:00+00:00",
+        "embedding_model": "all-MiniLM-L6-v2",
+        "embedding_revision": "0000000000000000000000000000000000000000",
+        "chunk_size": 500,
+        "document_count": 2,
+        "collection": "observability-docs-00000000000000000000000000000000",
+        "chunk_count": 4
+      },
+      "freshness": {
+        "status": "current",
+        "checked_at": "2026-01-15T09:31:00+00:00",
+        "added": [],
+        "modified": [],
+        "deleted": []
+      },
+      "content_trust": "untrusted",
+      "generated": false
+    }
+  }
+}

@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GET /health 200 response",
+  "description": "Index identity and freshness. 'degraded' means the index answers but its sources are stale or could not be compared. A missing index is a 503 index_unavailable error, not a health body.",
+  "x-contract-version": "1.0.0",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "status",
+    "retrieval",
+    "corpus",
+    "freshness"
+  ],
+  "properties": {
+    "contract_version": {
+      "$ref": "#/$defs/contract_version"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "degraded"
+      ]
+    },
+    "retrieval": {
+      "enum": [
+        "vector",
+        "hybrid"
+      ]
+    },
+    "corpus": {
+      "$ref": "#/$defs/corpus"
+    },
+    "freshness": {
+      "$ref": "#/$defs/freshness"
+    }
+  },
+  "$defs": {
+    "contract_version": {
+      "description": "Contract version the server provides (MAJOR.MINOR.PATCH). Any 1.x.y is compatible with this schema; minor versions only add fields.",
+      "type": "string",
+      "pattern": "^1\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "corpus": {
+      "description": "Identity of the indexed snapshot. Local paths are never included.",
+      "oneOf": [
+        {
+          "title": "Provenance recorded at ingestion",
+          "type": "object",
+          "required": [
+            "provenance",
+            "corpus_sha256",
+            "ingested_at",
+            "embedding_model",
+            "embedding_revision",
+            "chunk_size",
+            "document_count",
+            "collection",
+            "chunk_count"
+          ],
+          "properties": {
+            "provenance": {
+              "const": "available"
+            },
+            "corpus_sha256": {
+              "description": "SHA-256 over every indexed source path and its content hash.",
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ingested_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the snapshot was indexed (UTC)."
+            },
+            "embedding_model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "embedding_revision": {
+              "description": "Embedding model snapshot, or null when unknown.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "chunk_size": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "document_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "collection": {
+              "type": "string",
+              "minLength": 1
+            },
+            "chunk_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "title": "Legacy index without provenance (re-ingest to record it)",
+          "type": "object",
+          "required": [
+            "provenance",
+            "embedding_model",
+            "collection",
+            "chunk_count"
+          ],
+          "properties": {
+            "provenance": {
+              "const": "unavailable"
+            },
+            "embedding_model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "collection": {
+              "type": "string",
+              "minLength": 1
+            },
+            "chunk_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "freshness": {
+      "description": "Whether the local sources changed since ingestion. 'stale' and 'unavailable' are answers, not failures; only --require-fresh turns them into 503 errors.",
+      "oneOf": [
+        {
+          "title": "Sources compared with the index",
+          "type": "object",
+          "required": [
+            "status",
+            "checked_at",
+            "added",
+            "modified",
+            "deleted"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "current",
+                "stale"
+              ]
+            },
+            "checked_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "added": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "modified": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deleted": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "title": "Sources could not be compared (the reason is logged on the server)",
+          "type": "object",
+          "required": [
+            "status",
+            "checked_at",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "checked_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

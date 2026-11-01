@@ -1,0 +1,32 @@
+{
+  "description": "The server requires an API key and none was sent.",
+  "setup": "Fictional corpus ingested; sources unchanged. Server started with RAG_API_KEY=example-key.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0"
+    },
+    "body": {
+      "question": "Which tags are required, including cost-centre?",
+      "k": 3
+    }
+  },
+  "response": {
+    "status": 401,
+    "schema": "schemas/error-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "error": {
+        "code": "unauthorized",
+        "message": "Missing or invalid API key."
+      }
+    }
+  }
+}

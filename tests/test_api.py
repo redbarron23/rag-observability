@@ -12,6 +12,8 @@ from unittest.mock import Mock
 
 import numpy as np
 import pytest
+from contract_check import RETRIEVE, assert_conforms
+from contract_check import errors as contract_errors
 
 import api
 import ingest
@@ -73,6 +75,8 @@ def call(port, method, path, body=None, headers=None, raw=None):
     resp = conn.getresponse()
     data = json.loads(resp.read())
     conn.close()
+    # Every response in these tests, including errors, must match the published contract.
+    assert_conforms(method, path, resp.status, data, resp.headers)
     return resp.status, data, resp
 
 
@@ -317,6 +321,6 @@ def test_hybrid_mode_is_reported(index, serve):
 
 def test_docs_example_matches_schema():
     doc = (Path(__file__).parent.parent / "docs" / "http-api.md").read_text()
-    for field in ("chunk_id", "source", "section", "distance", "corpus_sha256",
-                  "ingested_at", "freshness", "content_trust", "generated"):
-        assert f'"{field}"' in doc
+    example = json.loads(doc.split("```json\n", 1)[1].split("```", 1)[0])
+    assert not contract_errors(RETRIEVE, example)
+    assert example["contract_version"] == api.CONTRACT_VERSION

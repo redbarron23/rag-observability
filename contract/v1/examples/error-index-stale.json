@@ -1,0 +1,40 @@
+{
+  "description": "With --require-fresh, a stale index is a 503 that carries the freshness detail.",
+  "setup": "Fictional corpus ingested, then reference/tagging-policy.md edited. Server started with --require-fresh.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0"
+    },
+    "body": {
+      "question": "Which tags are required, including cost-centre?",
+      "k": 3
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "schemas/error-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "error": {
+        "code": "index_stale",
+        "message": "Source documents changed since ingestion. Run python ingest.py.",
+        "freshness": {
+          "status": "stale",
+          "checked_at": "2026-01-15T09:31:00+00:00",
+          "added": [],
+          "modified": [
+            "reference/tagging-policy.md"
+          ],
+          "deleted": []
+        }
+      }
+    }
+  }
+}

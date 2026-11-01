@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Error response (every non-200 status)",
+  "description": "Every non-200 response. A failure is never an empty hits list. error.code is stable and machine-readable; $defs/known_error_code lists this version's codes. A minor version may add codes for new failure conditions, so treat an unknown code as a failure of its HTTP status, never as no match.",
+  "x-contract-version": "1.0.0",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "error"
+  ],
+  "properties": {
+    "contract_version": {
+      "$ref": "#/$defs/contract_version"
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "message": {
+          "description": "Human-readable and client-safe; do not parse it.",
+          "type": "string"
+        },
+        "freshness": {
+          "description": "Present on index_stale and index_freshness_unavailable.",
+          "$ref": "#/$defs/freshness"
+        }
+      },
+      "if": {
+        "properties": {
+          "code": {
+            "enum": [
+              "index_stale",
+              "index_freshness_unavailable"
+            ]
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "then": {
+        "required": [
+          "freshness"
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "contract_version": {
+      "description": "Contract version the server provides (MAJOR.MINOR.PATCH). Any 1.x.y is compatible with this schema; minor versions only add fields.",
+      "type": "string",
+      "pattern": "^1\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "corpus": {
+      "description": "Identity of the indexed snapshot. Local paths are never included.",
+      "oneOf": [
+        {
+          "title": "Provenance recorded at ingestion",
+          "type": "object",
+          "required": [
+            "provenance",
+            "corpus_sha256",
+            "ingested_at",
+            "embedding_model",
+            "embedding_revision",
+            "chunk_size",
+            "document_count",
+            "collection",
+            "chunk_count"
+          ],
+          "properties": {
+            "provenance": {
+              "const": "available"
+            },
+            "corpus_sha256": {
+              "description": "SHA-256 over every indexed source path and its content hash.",
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "ingested_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the snapshot was indexed (UTC)."
+            },
+            "embedding_model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "embedding_revision": {
+              "description": "Embedding model snapshot, or null when unknown.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "chunk_size": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "document_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "collection": {
+              "type": "string",
+              "minLength": 1
+            },
+            "chunk_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "title": "Legacy index without provenance (re-ingest to record it)",
+          "type": "object",
+          "required": [
+            "provenance",
+            "embedding_model",
+            "collection",
+            "chunk_count"
+          ],
+          "properties": {
+            "provenance": {
+              "const": "unavailable"
+            },
+            "embedding_model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "collection": {
+              "type": "string",
+              "minLength": 1
+            },
+            "chunk_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "freshness": {
+      "description": "Whether the local sources changed since ingestion. 'stale' and 'unavailable' are answers, not failures; only --require-fresh turns them into 503 errors.",
+      "oneOf": [
+        {
+          "title": "Sources compared with the index",
+          "type": "object",
+          "required": [
+            "status",
+            "checked_at",
+            "added",
+            "modified",
+            "deleted"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "current",
+                "stale"
+              ]
+            },
+            "checked_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "added": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "modified": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deleted": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "title": "Sources could not be compared (the reason is logged on the server)",
+          "type": "object",
+          "required": [
+            "status",
+            "checked_at",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "unavailable"
+            },
+            "checked_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "known_error_code": {
+      "enum": [
+        "invalid_request",
+        "unsupported_contract_version",
+        "unauthorized",
+        "forbidden_host",
+        "not_found",
+        "method_not_allowed",
+        "length_required",
+        "payload_too_large",
+        "unsupported_media_type",
+        "index_unavailable",
+        "index_stale",
+        "index_freshness_unavailable",
+        "retrieval_failed",
+        "internal_error"
+      ]
+    }
+  }
+}

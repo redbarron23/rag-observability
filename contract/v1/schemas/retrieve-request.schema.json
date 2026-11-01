@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /retrieve request",
+  "description": "Body of POST /retrieve (Content-Type: application/json, at most 16384 bytes). Unknown fields are rejected with 400 invalid_request. The server trims the question before checking it and requires k to be written as a JSON integer (6, not 6.0).",
+  "x-contract-version": "1.0.0",
+  "type": "object",
+  "required": [
+    "question"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "question": {
+      "description": "1-2000 characters, at least one of them not whitespace; no NUL.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "allOf": [
+        {
+          "pattern": "\\S"
+        },
+        {
+          "pattern": "^[^\\u0000]*$"
+        }
+      ]
+    },
+    "k": {
+      "description": "Maximum number of ranked hits (default 6). Section completion can append more.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "max_distance": {
+      "description": "Cosine-distance cutoff (default 0.6); 2 disables it.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2
+    }
+  }
+}
