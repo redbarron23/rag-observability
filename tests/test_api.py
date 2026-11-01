@@ -81,6 +81,31 @@ def test_prompt_based_citations_and_no_matches_are_preserved(client):
     assert response.json()["chunks"] == []
 
 
+def test_ask_without_matches_never_calls_generation(client):
+    from query import RAGEngine
+
+    http, engine, _ = client
+    engine.retrieve.return_value = []
+    engine.answer_with_citations.side_effect = lambda *args, **kwargs: (
+        RAGEngine.answer_with_citations(engine, *args, **kwargs)
+    )
+    response = http.post("/ask", json={"question": "Unsupported policy?"})
+    assert response.status_code == 200
+    assert response.json()["answer"] == "No relevant documents found."
+    assert response.json()["chunks"] == []
+    assert response.json()["citations"] == []
+    engine._call_llm.assert_not_called()
+
+
+def test_documented_request_limits_are_accepted(client):
+    http, engine, _ = client
+    response = http.post("/retrieve", json={
+        "question": "x" * 4000, "n_results": 20, "max_distance": 2,
+    })
+    assert response.status_code == 200
+    engine.retrieve.assert_called_once_with("x" * 4000, n_results=20, max_distance=2)
+
+
 @pytest.mark.parametrize("payload", [
     {}, {"question": ""}, {"question": " \n "}, {"question": "x" * 4001},
     {"question": 42}, {"question": "q", "n_results": 0},
