@@ -295,6 +295,16 @@ Short questions about a named thing embed poorly. For "What does the Ops Agent d
 
 Single capitalised words such as `GCP` don't count; they appear throughout the corpus. BM25 scores were not usable as the signal: on 37 chunks, generic words like "month" score as high as "ops". The margin applies in both retrieval modes and only to chunks already in the ranked results. On the bundled corpus the closest chunk to each of the four off-topic unanswerable questions is at 0.643 or more and contains none of its exact terms, so all four are still rejected. (The unknown-ownership question retrieves tagging-standard context within the cutoff; see [Dimension 1](#dimension-1-source-attribution).) A question that names a real term but asks something the documents don't cover (for example the Ops Agent's price) can still retrieve that chunk; the model then has to decline.
 
+##### Keeping the margin tested
+
+Distances move whenever the corpus is edited, so whether a given question needs the margin is a property of today's corpus, not of the question. The margin is covered at three levels:
+
+1. **Mechanism, corpus-independent.** `tests/test_hybrid_retrieval.py` tests the margin with fixed embeddings (kept just past the cutoff, bounded above, both retrieval modes), so no document edit can break it.
+2. **Reported, not pinned.** Retrieval evals print `Exact-term margin kept supporting evidence for: …`, the cases whose expected-section chunk is beyond `--max-distance` and was kept only by the margin (not by [split-section completion](#split-sections)). The run artifact records the same list per case (`exact_term_margin`) and per block (`exact_term_margin_cases`), so diffing the weekly artifacts shows a corpus edit moving a case in or out. On 1 November 2026: `short-ops-agent` and `short-last-updated` in vector mode, plus `obs-agent-team-cost-centre` in hybrid.
+3. **A floor.** The retrieval evals fail if *no* main-set case relies on the margin (`[FAIL] exact-term margin coverage`). Any single case may drift inside the cutoff without failing CI; if the floor trips, add a case that needs the margin rather than editing a document to push one back out. Held-out cases are reported but don't count toward the floor.
+
+The `short-*` cases therefore check an outcome (a short question about a named thing is answerable), not that the margin was used.
+
 #### Split sections
 
 Ingestion never splits a paragraph, but a section longer than the chunk size becomes several chunks. A retrieved chunk can then be the half without the answer: the tagging standard's *Team vocabulary* table (distance 0.624 for "Which cost centre belongs to the data-platform team…") sits in one chunk and the paragraph after it (0.478) in another, and vector top-6 returned only the paragraph. So when a kept chunk belongs to a section of two or three chunks (`SECTION_MAX_CHUNKS`), `retrieve()` appends that section's other chunks after all ranked chunks, in document order. Each appended chunk keeps its own distance, which may be beyond the cutoff, and carries `expanded_from`, the ID of the ranked chunk that pulled it in. Ranks and `n_results` are unchanged, nothing is added when nothing survives the cutoff, and longer sections are left alone. On the bundled corpus eight sections are split: five in the tagging standard, and the three sections of the GCP and Azure metrics comparison, whose second chunk holds that section's vendor source links. When only the five tagging-standard sections were split, appending their other halves added about 6% to generation input tokens.
@@ -443,7 +453,7 @@ The retrieval and fact checks catch both failure modes (the citation check adds 
 | `runbook-gcp-logging-investigation` | Investigating a GCP logging cost spike | `runbooks/logging-cost-spike.md` | bytes_ingested, exclusion |
 | `conflict-commitment-tier-after-spike` | Commitment tier after a spike (conflicting guidance) | `runbooks/logging-cost-spike.md`, `programme/COST_SMOOTHING.md` | two consecutive months, three consecutive, FinOps |
 
-The `exact-*` cases use figures, product names and tag names, where keyword matching should help most (issue #8). The `short-*` cases are short questions about a named thing whose best chunk sits just past the distance cutoff (issue #58).
+The `exact-*` cases use figures, product names and tag names, where keyword matching should help most (issue #8). The `short-*` cases are short questions about a named thing, which embed poorly (issue #58). They check that such questions are answerable; whether the [exact-term margin](#keeping-the-margin-tested) is what keeps their evidence is reported per run, not required per case.
 
 Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-vendor-pricing`, `unanswerable-k8s-version`, `unanswerable-outage-root-cause`, `unanswerable-subscription-owner`, `unanswerable-logging-spend-amount`.
 

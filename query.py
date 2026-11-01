@@ -109,6 +109,14 @@ def within_cutoff(distance: float | None, max_distance: float | None,
             and bool(matched_exact_terms(terms, text)))
 
 
+def kept_by_exact_term(chunk: dict, max_distance: float | None) -> bool:
+    """Whether a retrieved chunk is beyond max_distance and was kept only by
+    the exact-term margin (not appended by split-section completion)."""
+    distance = chunk.get("distance")
+    return (max_distance is not None and distance is not None
+            and distance > max_distance and "expanded_from" not in chunk)
+
+
 def chunk_index(chunk_id: str) -> int:
     """Position of a "<source>#<index>" chunk within its document."""
     try:

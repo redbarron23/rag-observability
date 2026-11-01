@@ -98,6 +98,7 @@ def test_unknown_retrieval_mode_is_rejected():
 
 
 def test_evals_cli_passes_retrieval_mode(monkeypatch):
+    monkeypatch.setattr(evals, "REQUIRE_MARGIN_COVERAGE", False)
     monkeypatch.setattr("sys.argv", ["evals.py", "--retrieval", "hybrid"])
     factory = Mock()
     monkeypatch.setattr(evals, "RAGEngine", factory)

@@ -65,6 +65,7 @@ def run_evals(monkeypatch, tmp_path):
     monkeypatch.delenv("LLM_MODEL", raising=False)
     case = {"expected_sources": ["doc.md"], "expected_sections": [("doc.md", "Tier 1")],
             "expected_facts": ["85%"]}
+    monkeypatch.setattr(evals, "REQUIRE_MARGIN_COVERAGE", False)
     monkeypatch.setattr(evals, "EVALS", [
         {"id": "main-ok", "question": "Tier 1?", **case},
         {"id": "main-error", "question": "boom", **case},
