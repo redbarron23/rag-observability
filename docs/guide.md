@@ -280,7 +280,7 @@ Retrieval evals on the bundled corpus (top-6, 0.6 cutoff):
 | `vector` (default) | 21/21 | 12/20 | 19/20 | 20/20 |
 | `hybrid` | 21/21 | 14/20 | 19/20 | 20/20 |
 
-Hybrid moves the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranks lower and all four unanswerable questions are still rejected. Vector stays the default because no case changes from fail to pass and generation evals (`--with-llm`) haven't been compared across the two modes. The two `short-*` cases pass in both modes because of the [exact-term margin](#exact-term-margin); without it they fail in both.
+Hybrid moves the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranks lower and all four unanswerable questions are still rejected. Vector stays the default because no case changes from fail to pass, and with Claude Sonnet 5.5 the full generation evals pass 21/21 in both modes. The two `short-*` cases pass in both modes because of the [exact-term margin](#exact-term-margin); without it they fail in both.
 
 #### Exact-term margin
 
@@ -405,8 +405,10 @@ The retrieval and fact checks catch both failure modes (the citation check adds 
 | `exact-tag-values` | `environment` and `tier` tag values | `reference/tagging-standard.md` | prod, staging, dev |
 | `exact-tag-enforcement` | Missing `owner` or `cost-centre` tag | `reference/tagging-standard.md` | Azure Policy, 30 days |
 | `exact-basic-logs` | Tables moved to Basic Logs | `programme/COST_SMOOTHING.md` | high-volume, 30 days |
+| `short-ops-agent` | "What does the Ops Agent do?" | `reference/gcp-azure-metrics-comparison.md` | host metrics, YAML |
+| `short-last-updated` | "What is last_updated used for?" | `data-first-approach.md` | 6 hours |
 
-The `exact-*` cases use figures, product names and tag names, where keyword matching should help most (issue #8).
+The `exact-*` cases use figures, product names and tag names, where keyword matching should help most (issue #8). The `short-*` cases are short questions about a named thing whose best chunk sits just past the distance cutoff (issue #58).
 
 Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-vendor-pricing`, `unanswerable-k8s-version`, `unanswerable-outage-root-cause`.
 
@@ -415,11 +417,15 @@ Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-ve
 | Mode | Cases | Passed |
 |---|---|---|
 | Retrieval (document attribution + supporting sections + cutoff), no API key | 21 | 21 (100%) |
-| Full, generation with DeepSeek (facts, citations, declines), before the `exact-*` cases | 14 | 14 (100%) |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default) | 21 | 21 (100%) |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid` | 21 | 21 (100%) |
+| Full, generation with DeepSeek, before the `exact-*` and `short-*` cases | 14 | 14 (100%) |
+
+Sonnet 5.5 run on 1 November 2026 (`python evals.py --with-llm`, top-6, 0.6 cutoff with the exact-term margin). Both modes pass every dimension: sources 17/17, facts 17/17, citations 17/17 (Claude's native citations, checked from the structured citation data rather than the answer text) and declines 4/4. Each run made 21 calls of about 1,750 input and 200 output tokens on average (at most 442 output tokens), roughly $0.12 per run at list price. The full evals don't separate the two retrieval modes on this corpus; the difference shows only in section ranking (see [hybrid retrieval](#hybrid-retrieval-opt-in)).
 
 Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
-Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 21 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution is 17/17 answerable cases; supporting-section recall is 12/20 at rank 1, 19/20 at rank 3, and 20/20 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the four unanswerable cases, which are scored by rejection instead. The full-generation result above is the earlier DeepSeek run; generation was not rerun for the section-check change or the `exact-*` and `short-*` cases.
+Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 21 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution is 17/17 answerable cases; supporting-section recall is 12/20 at rank 1, 19/20 at rank 3, and 20/20 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the four unanswerable cases, which are scored by rejection instead. DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added.
 
 ---
 
