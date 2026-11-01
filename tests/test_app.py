@@ -85,7 +85,7 @@ def test_generation_without_structured_citations_shows_no_quotes(ui, citations):
 
 
 def test_retrieval_mode_selector_defaults_and_caches_engine_per_mode(ui):
-    app, engine, factory = ui
+    app, _engine, factory = ui
     selector = app.sidebar.selectbox[0]
     assert selector.label == "Retrieval mode"
     assert selector.value == "vector"
