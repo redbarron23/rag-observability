@@ -19,6 +19,11 @@ questions the corpus can't answer.  Runs in two modes:
 
 The retrieval-only mode is fast, free, and catches most regressions.
 Use --with-llm for the full attribution + fact-presence + citation check.
+
+The answer checks are heuristics: they catch swapped fact pairs, cited
+sections that weren't retrieved, and a decline followed by an unsupported
+name or number, but passing them is not proof of factual correctness.
+Held-out questions are reported separately and don't affect the exit code.
 """
 
 import argparse
@@ -34,6 +39,8 @@ EVALS = [
         "expected_sources": ["reference/coverage-targets.md"],
         "expected_sections": [("reference/coverage-targets.md", "Tier 1")],
         "expected_facts": ["85%", "4 months", "100%", "9 months"],
+        # Each target must be stated with its own deadline (issue #29).
+        "expected_relations": [("85%", "4 months"), ("100%", "9 months")],
     },
     {
         "id": "coverage-targets-gcp",
@@ -258,6 +265,70 @@ UNANSWERABLE_EVALS = [
     },
 ]
 
+# Held-out questions (issue #29). Written on 2026-11-01 after the distance
+# cutoff (0.6) and exact-term margin (0.1) were fixed, about sections no other
+# case targets. They are not used to tune retrieval: their results are
+# reported separately and don't affect the exit code, so a failure here is a
+# generalisation signal to record, not a reason to retune the cutoff.
+HELDOUT_EVALS = [
+    {
+        "id": "heldout-tier2-targets",
+        "question": "What coverage targets apply to internal production workloads?",
+        "expected_sources": ["reference/coverage-targets.md"],
+        "expected_sections": [("reference/coverage-targets.md", "Tier 2")],
+        "expected_facts": ["70%", "6 months", "95%", "12 months"],
+        "expected_relations": [("70%", "6 months"), ("95%", "12 months")],
+    },
+    {
+        "id": "heldout-alert-noise",
+        "question": "How much alert noise is acceptable for an Excellent alerts score?",
+        "expected_sources": ["architecture/observability_framework.md"],
+        "expected_sections": [("architecture/observability_framework.md", "Alerts")],
+        "expected_facts": ["non-actionable", "per week"],
+    },
+    {
+        "id": "heldout-error-propagation",
+        "question": "How does tracing help when an error shows up at the edge?",
+        "expected_sources": ["architecture/observability_tracing_use_cases.md"],
+        "expected_sections": [
+            ("architecture/observability_tracing_use_cases.md", "Error propagation"),
+        ],
+        "expected_facts": ["failing component", "mean time to resolution"],
+    },
+    {
+        "id": "heldout-commitment-tier",
+        "question": "When does the programme buy a Log Analytics commitment tier, and how large is it?",
+        "expected_sources": ["programme/COST_SMOOTHING.md"],
+        "expected_sections": [("programme/COST_SMOOTHING.md", "Commitment tiers")],
+        "expected_facts": ["two consecutive months", "100 GB per day"],
+    },
+    {
+        "id": "heldout-cost-centre-format",
+        "question": "How are cost-centre values written on GCP compared with Azure?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Cost centre")],
+        "expected_facts": ["lowercase", "cc-1001", "CC-1001"],
+    },
+    {
+        "id": "heldout-reporting-principle",
+        "question": "Why do reporting jobs read the central metrics store before calling cloud APIs?",
+        "expected_sources": ["data-first-approach.md"],
+        "expected_sections": [("data-first-approach.md", "Principle")],
+        "expected_facts": ["throttling", "reproducible"],
+    },
+]
+
+HELDOUT_UNANSWERABLE_EVALS = [
+    {
+        "id": "heldout-unanswerable-escalation-policy",
+        "question": "Which PagerDuty escalation policy does the checkout service use?",
+    },
+    {
+        "id": "heldout-unanswerable-grafana-version",
+        "question": "Which Grafana version runs the central dashboards?",
+    },
+]
+
 
 def contains_fact(answer: str, fact: str) -> bool:
     """Case-insensitive match that must start at a word boundary, so that
@@ -345,6 +416,164 @@ def unanswerable_problems(chunks: list[dict], ev: dict) -> list[str]:
     return problems
 
 
+# ── Stricter answer checks (issue #29) ─────────────────────────────────
+# These are offline heuristics. They catch specific failure shapes (swapped
+# fact pairs, invented sections, a decline followed by a guess); passing them
+# is not proof that an answer is factually correct.
+
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def sentences(text: str) -> list[str]:
+    return [s for s in SENTENCE_SPLIT_RE.split(text.strip()) if s]
+
+
+def _fact_spans(text: str, fact: str) -> list[tuple[int, int]]:
+    return [m.span() for m in
+            re.finditer(r"(?<!\w)" + re.escape(fact), text, re.IGNORECASE)]
+
+
+def _stated_together(sentence: str, first: str, second: str, others: set[str]) -> bool:
+    for _, first_end in _fact_spans(sentence, first):
+        later = [start for start, _ in _fact_spans(sentence, second) if start >= first_end]
+        if not later:
+            continue
+        between = sentence[first_end:min(later)]
+        if not any(_fact_spans(between, other) for other in others):
+            return True
+    return False
+
+
+def relation_problems(answer: str, relations: list[tuple[str, str]]) -> list[str]:
+    """Pairs of facts that the answer doesn't state together.
+
+    A pair (first, second) holds when, within one sentence, first is followed
+    by second with no other fact from the case's pairs in between. "85% within
+    4 months and 100% within 9 months" satisfies (85%, 4 months) and
+    (100%, 9 months); the swapped "100% within 4 months and 85% within
+    9 months" satisfies neither. The check is order-sensitive, so a correct
+    answer phrased the other way round ("within 4 months, 85%") also fails:
+    it prefers a false failure to a false pass.
+    """
+    terms = {term for pair in relations for term in pair}
+    return [f"{first!r} not stated with {second!r}"
+            for first, second in relations
+            if not any(_stated_together(s, first, second, terms - {first, second})
+                       for s in sentences(answer))]
+
+
+SECTION_RE = re.compile(r"sections?\s*:?\s*['\"\u2018\u201c](.+?)['\"\u2019\u201d]", re.IGNORECASE)
+BREADCRUMB_RE = re.compile(r"\s*[>\u203a\u00bb]\s*")
+
+
+def normalise_section(section: str) -> str:
+    """Normalisation for comparing a cited section with chunk metadata:
+    keep only the last heading of a breadcrumb ("Coverage Targets > Tier 1"
+    -> "Tier 1"), drop surrounding quotes and trailing punctuation, collapse
+    whitespace and ignore case. Anything else must match exactly."""
+    last = BREADCRUMB_RE.split(section)[-1]
+    last = last.strip().strip("'\"\u2018\u2019\u201c\u201d").rstrip(".,;:").strip()
+    return " ".join(last.split()).casefold()
+
+
+def cited_sections(answer: str) -> list[tuple[str, str]]:
+    """(document, section) pairs from written citations such as
+    "(source: a.md, section 'X'; source: b.md, section 'Y')"."""
+    pairs = []
+    for citation in CITATION_RE.findall(answer):
+        for part in citation.strip("()").split(";"):
+            document, section = DOCUMENT_RE.search(part), SECTION_RE.search(part)
+            if document and section:
+                pairs.append((document.group(0), section.group(1)))
+    return pairs
+
+
+def section_problems(answer: str, chunks: list[dict],
+                     citations: list[dict] | None = None) -> list[str]:
+    """Cited sections that no retrieved chunk carries.
+
+    Checks the structured citations when the provider returned them, and the
+    sections written in the answer text in either case (on the Anthropic path
+    those markers are generated from chunk metadata). A citation without a
+    section is not checked here; citation_problems covers the document.
+    """
+    cited = cited_sections(answer)
+    if citations:
+        cited += [(c["source"], c.get("section") or "") for c in citations
+                  if c.get("section")]
+    retrieved = [(c["source"], normalise_section(c.get("section") or "")) for c in chunks]
+    problems = []
+    for document, section in dict.fromkeys(cited):
+        if not any(same_document(document, source) and normalise_section(section) == name
+                   for source, name in retrieved):
+            problems.append(f"cites a section that wasn't retrieved: {document} / {section!r}")
+    return problems
+
+
+NEGATION_RE = re.compile(
+    r"\b(?:no|not|none|neither|nor|never|cannot|without|unable|unknown)\b|n't\b",
+    re.IGNORECASE,
+)
+# Pointers elsewhere ("Check your paging tool") are not answers.
+ADVICE_RE = re.compile(
+    r"^\s*(?:you (?:may|might|could|should|can|would)|please|try|check|consult|ask"
+    r"|contact|refer|see|look|consider|i (?:recommend|suggest))\b",
+    re.IGNORECASE,
+)
+SPECIFIC_RE = re.compile(r"[\w.-]*\d[\w.-]*|\b[A-Z][\w-]*")
+WORD_RE = re.compile(r"[\w.-]+")
+# Capitalised only because they start a sentence.
+SENTENCE_STARTERS = frozenset("""
+    a an the this that these those they it its there here i we you he she my our your their
+    however but and so also only each all both some any based according in on for to as if
+    while although instead unfortunately therefore because what which who when where why how
+    note answer documents document context sources source information
+""".split())
+
+
+def unsupported_specifics(sentence: str, known: set[str]) -> list[str]:
+    """Names and numbers in a sentence that appear in neither the question
+    nor the corpus, e.g. "Alice" or "1.29"."""
+    found = []
+    for token in SPECIFIC_RE.findall(sentence):
+        word = token.strip(".-")
+        if word and word.lower() not in known and word.lower() not in SENTENCE_STARTERS:
+            found.append(word)
+    return found
+
+
+def decline_problems(answer: str, question: str, corpus_text: str) -> list[str]:
+    """Why an answer to an unanswerable question is not a clean decline.
+
+    The answer must decline (is_decline), and no sentence may add a name or
+    number found in neither the question nor the corpus, unless the sentence
+    is negated ("None of them mention AKS") or points elsewhere ("Check your
+    paging tool"). This catches "The context does not contain a rota. Alice
+    is on call this week." It does not catch a guess built only from ordinary
+    words or from terms that happen to occur in the corpus.
+    """
+    if not is_decline(answer):
+        return ["does not decline"]
+    known = {w.strip(".-").lower() for w in WORD_RE.findall(f"{question} {corpus_text}")}
+    problems = []
+    for sentence in sentences(answer):
+        if NEGATION_RE.search(sentence) or ADVICE_RE.search(sentence):
+            continue
+        extra = unsupported_specifics(sentence, known)
+        if extra:
+            problems.append(f"unsupported claim alongside the decline: {sentence!r} "
+                            f"({', '.join(extra)})")
+    return problems
+
+
+def corpus_text(engine) -> str:
+    """Every indexed chunk's text, or "" when the engine has no collection."""
+    try:
+        return "\n".join(engine.collection.get(include=["documents"])["documents"] or [])
+    except AttributeError:
+        return ""
+
+
 RETRIEVE_N = 6  # number of chunks to retrieve for document and section checks
 
 
@@ -358,8 +587,12 @@ def supporting_section_ranks(chunks: list[dict],
     ]
 
 
-def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
+def run_retrieval_evals(engine: RAGEngine, verbose: bool,
+                        answerable: list[dict] | None = None,
+                        unanswerable: list[dict] | None = None) -> tuple[int, int]:
     """Run retrieval-only evals — no LLM API call needed."""
+    answerable = EVALS if answerable is None else answerable
+    unanswerable = UNANSWERABLE_EVALS if unanswerable is None else unanswerable
     passed = 0
     failed = 0
     source_passed = 0
@@ -369,7 +602,7 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     print(f"Retrieval evals (documents and supporting sections in top-{RETRIEVE_N})")
     print("=" * 60)
 
-    for ev in EVALS:
+    for ev in answerable:
         chunks = engine.retrieve(ev["question"], n_results=RETRIEVE_N)
         retrieved_sources = {c["source"] for c in chunks}
 
@@ -404,14 +637,14 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         else:
             failed += 1
 
-    print(f"\nDocument attribution: {source_passed}/{len(EVALS)} cases")
+    print(f"\nDocument attribution: {source_passed}/{len(answerable)} cases")
     print("Supporting-section recall: " + ", ".join(
         f"@{cutoff} {hits}/{section_total}" for cutoff, hits in section_hits.items()))
 
     # Unanswerable questions: nothing should survive the distance cutoff,
     # except related context from allowed_sources that holds no evidence
     # about the subject (none of absent_terms).
-    for ev in UNANSWERABLE_EVALS:
+    for ev in unanswerable:
         chunks = engine.retrieve(ev["question"], n_results=RETRIEVE_N)
         ok = not unanswerable_problems(chunks, ev)
 
@@ -432,8 +665,13 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     return passed, failed
 
 
-def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
+def run_full_evals(engine: RAGEngine, verbose: bool,
+                   answerable: list[dict] | None = None,
+                   unanswerable: list[dict] | None = None) -> tuple[int, int]:
     """Run full evals — retrieval + LLM answer + fact and citation checks."""
+    answerable = EVALS if answerable is None else answerable
+    unanswerable = UNANSWERABLE_EVALS if unanswerable is None else unanswerable
+    corpus = corpus_text(engine)
     passed = 0
     failed = 0
     dimension_failures = {"sources": 0, "facts": 0, "citations": 0, "declines": 0}
@@ -443,7 +681,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     print("\nFull evals (retrieval + LLM answer + fact presence + citations)")
     print("=" * 60)
 
-    for ev in EVALS:
+    for ev in answerable:
         try:
             answer, chunks, citations = engine.answer_with_citations(
                 ev["question"], n_results=N_RESULTS, verbose=False,
@@ -463,10 +701,12 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
 
         # Check 2: fact presence in the answer
         missing_facts = [f for f in ev["expected_facts"] if not contains_fact(answer, f)]
-        facts_ok = not missing_facts
+        unrelated = relation_problems(answer, ev.get("expected_relations", []))
+        facts_ok = not missing_facts and not unrelated
 
         # Check 3: the answer's citations (structured when the provider has them)
-        bad_citations = citation_problems(answer, retrieved_sources, expected, citations)
+        bad_citations = (citation_problems(answer, retrieved_sources, expected, citations)
+                         + section_problems(answer, chunks, citations))
         citations_ok = not bad_citations
 
         dimension_failures["sources"] += not sources_ok
@@ -487,6 +727,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
                 print(f"       Missing sources: {missing_sources}")
             if missing_facts:
                 print(f"       Missing facts: {missing_facts}")
+            for problem in unrelated:
+                print(f"       Facts: {problem}")
             for problem in bad_citations:
                 print(f"       Citations: {problem}")
             print(f"       A: {answer[:300]}")
@@ -498,7 +740,7 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
 
     # Unanswerable questions run without the distance cutoff, so the model
     # sees the nearest chunks and has to decline on its own.
-    for ev in UNANSWERABLE_EVALS:
+    for ev in unanswerable:
         try:
             answer, chunks = engine.answer(
                 ev["question"], n_results=N_RESULTS, verbose=False,
@@ -510,7 +752,9 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
             unanswerable_errors += 1
             continue
 
-        ok = is_decline(answer)
+        bad_decline = decline_problems(answer, ev["question"],
+                                       corpus + "\n" + "\n".join(c.get("text", "") for c in chunks))
+        ok = not bad_decline
         dimension_failures["declines"] += not ok
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {ev['id']}  declines={'ok' if ok else 'FAIL'}")
@@ -518,6 +762,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         if not ok or verbose:
             print(f"       Q: {ev['question']}")
             print(f"       Retrieved: {', '.join(sorted({c['source'] for c in chunks}))}")
+            for problem in bad_decline:
+                print(f"       Declines: {problem}")
             print(f"       A: {answer[:300]}")
 
         if ok:
@@ -525,8 +771,8 @@ def run_full_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         else:
             failed += 1
 
-    totals = {"sources": len(EVALS), "facts": len(EVALS), "citations": len(EVALS),
-              "declines": len(UNANSWERABLE_EVALS)}
+    totals = {"sources": len(answerable), "facts": len(answerable), "citations": len(answerable),
+              "declines": len(unanswerable)}
     unevaluated = {"sources": answerable_errors, "facts": answerable_errors,
                    "citations": answerable_errors, "declines": unanswerable_errors}
     print(f"\nProvider errors: {answerable_errors + unanswerable_errors}/{passed + failed}")
@@ -554,10 +800,18 @@ def main() -> None:
 
     p1, f1 = run_retrieval_evals(engine, verbose=args.verbose)
     print(f"\nRetrieval results: {p1}/{p1 + f1} passed")
+    print("\nHeld-out questions (reported separately; not used for tuning and "
+          "not counted in the exit code)")
+    hp1, hf1 = run_retrieval_evals(engine, args.verbose,
+                                   HELDOUT_EVALS, HELDOUT_UNANSWERABLE_EVALS)
+    print(f"\nHeld-out retrieval: {hp1}/{hp1 + hf1} passed")
 
     if args.with_llm:
         p2, f2 = run_full_evals(engine, verbose=args.verbose)
         print(f"Full results:       {p2}/{p2 + f2} passed")
+        hp2, hf2 = run_full_evals(engine, args.verbose,
+                                  HELDOUT_EVALS, HELDOUT_UNANSWERABLE_EVALS)
+        print(f"Held-out full:      {hp2}/{hp2 + hf2} passed")
         print(f"\nCombined: {p1 + p2}/{p1 + p2 + f1 + f2} passed")
         failures = f1 + f2
     else:
