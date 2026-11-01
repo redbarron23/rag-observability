@@ -88,8 +88,9 @@ Retrieval and answer quality are evaluated separately.
 ## Quality and limits
 
 - The included corpus contains **eight fictional observability documents**, not customer material.
-- Evals cover fifteen answerable questions (expected sources, supporting sections, facts, and the citations the answer
-  writes) and four the corpus can't answer (the model must decline). Passing on this small corpus
+- Evals cover seventeen answerable questions (expected sources, supporting sections, facts, and
+  citations) and four the corpus can't answer (the model must decline). With Claude Sonnet 5.5 all
+  21 pass in both retrieval modes ([latest results](docs/guide.md#latest-results)). Passing on this small corpus
   does not establish quality on an unseen estate; adapt the eval cases for your own documents.
 - Citations come from the LLM: Claude's native citations quote the cited text, and DeepSeek's are
   written by the model. Check that the cited section actually supports the answer.
