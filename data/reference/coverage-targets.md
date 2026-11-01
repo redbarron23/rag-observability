@@ -4,7 +4,7 @@ Fictional sample document for the Contoso Cloud observability programme.
 
 ## Overview
 
-Coverage is the percentage of cloud resources that send metrics, logs and traces to the central observability platform. Targets are set per tier and per cloud.
+Coverage is the percentage of cloud resources that send metrics, logs and traces to the central observability platform. Targets are set per tier and per cloud. Coverage does not measure whether resources carry their required tags; label completeness is tracked separately in the tagging standard.
 
 ## Tier 1
 

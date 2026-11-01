@@ -81,3 +81,27 @@ def test_missing_supporting_section_fails_cli(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         evals.main()
     assert exc.value.code == 1
+
+
+@pytest.mark.parametrize("kept, ok", [
+    ([], True),
+    ([{"source": "policy.md", "text": "Owner names a team.", "distance": 0.5}], True),
+    ([{"source": "policy.md", "text": "az-demo-007 is owned by payments.", "distance": 0.5}],
+     False),
+    ([{"source": "other.md", "text": "Owner names a team.", "distance": 0.5}], False),
+])
+def test_unanswerable_allows_related_context_without_subject(monkeypatch, kept, ok):
+    monkeypatch.setattr(evals, "EVALS", [])
+    monkeypatch.setattr(evals, "UNANSWERABLE_EVALS", [{
+        "id": "unknown-owner", "question": "Which team owns az-demo-007?",
+        "allowed_sources": ["policy.md"], "absent_terms": ["az-demo-007"],
+    }])
+    engine = Mock()
+    engine.retrieve.return_value = kept
+    assert evals.run_retrieval_evals(engine, verbose=False) == ((1, 0) if ok else (0, 1))
+
+
+def test_unanswerable_without_allowed_sources_rejects_any_kept_chunk():
+    chunks = [{"source": "policy.md", "text": "Owner names a team."}]
+    assert evals.unanswerable_problems(chunks, {"id": "x", "question": "?"}) == [
+        "kept policy.md"]
