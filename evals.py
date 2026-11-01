@@ -240,6 +240,31 @@ EVALS = [
         "expected_sections": [("reference/tagging-standard.md", "Label completeness and coverage")],
         "expected_facts": ["neither substitutes"],
     },
+    # Cross-repo cost-runbook questions for obs-agent (obs-agent issue #91).
+    # obs-agent takes amounts and dates from its billing tools and cites the
+    # runbook only for investigation and remediation steps.
+    {
+        "id": "runbook-gcp-logging-investigation",
+        "question": "What does the runbook say to investigate for a GCP logging cost spike?",
+        "expected_sources": ["runbooks/logging-cost-spike.md"],
+        "expected_sections": [
+            ("runbooks/logging-cost-spike.md", "Investigation: GCP Cloud Logging"),
+        ],
+        "expected_facts": ["bytes_ingested", "exclusion"],
+    },
+    # Deliberate conflict: the runbook's Commitment tiers section disagrees
+    # with the cost smoothing plan's. Both must be retrieved so the answer
+    # can disclose the disagreement instead of picking one.
+    {
+        "id": "conflict-commitment-tier-after-spike",
+        "question": "When should we buy a commitment tier after a logging cost spike?",
+        "expected_sources": ["runbooks/logging-cost-spike.md", "programme/COST_SMOOTHING.md"],
+        "expected_sections": [
+            ("runbooks/logging-cost-spike.md", "Commitment tiers"),
+            ("programme/COST_SMOOTHING.md", "Commitment tiers"),
+        ],
+        "expected_facts": ["two consecutive months", "three consecutive", "FinOps"],
+    },
 ]
 
 # Questions on observability-adjacent topics that the sample corpus doesn't
@@ -271,6 +296,15 @@ UNANSWERABLE_EVALS = [
         "question": "Which team owns the Azure subscription az-demo-007?",
         "allowed_sources": ["reference/tagging-standard.md"],
         "absent_terms": ["az-demo-007"],
+    },
+    # Billing amounts live in billing data, never in the corpus (obs-agent
+    # issue #91). Runbook context may be retrieved, but none of it may name
+    # the project or the day.
+    {
+        "id": "unanswerable-logging-spend-amount",
+        "question": "How much did project-bravo spend on logging on 23 April?",
+        "allowed_sources": ["runbooks/logging-cost-spike.md", "programme/COST_SMOOTHING.md"],
+        "absent_terms": ["project-bravo", "23 April"],
     },
 ]
 
