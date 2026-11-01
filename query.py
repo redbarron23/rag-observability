@@ -227,6 +227,52 @@ def format_citations(citations: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# ── Request construction ───────────────────────────────────────────────
+# Pure functions, so tests and adversarial_evals.py can check offline where
+# retrieved text ends up: always inside a document block (Anthropic) or after
+# "Context:" in the user message (DeepSeek), never in the system prompt.
+
+def anthropic_content(query: str, chunks: list[dict]) -> list[dict]:
+    """The user turn for Claude: one citable document block per chunk, then
+    the question as the only text block."""
+    documents = [
+        {
+            "type": "document",
+            "source": {"type": "text", "media_type": "text/plain", "data": c["text"]},
+            "title": chunk_title(c),
+            "citations": {"enabled": True},
+        }
+        for c in chunks
+    ]
+    question = {
+        "type": "text",
+        "text": f"Answer this question using ONLY the documents above.\n\nQuestion: {query}",
+    }
+    return [*documents, question]
+
+
+def deepseek_messages(query: str, chunks: list[dict]) -> list[dict]:
+    """System and user messages for DeepSeek: the question, then the chunks as
+    a prompt-written context with a "[Chunk N] Source: …" header each."""
+    context = "\n\n---\n\n".join(
+        f"[Chunk {i}] Source: {c['source']}"
+        + (f", Section: {c['section']}" if c["section"] else "")
+        + f"\n{c['text']}"
+        for i, c in enumerate(chunks, start=1)
+    )
+    user_content = f"""Answer the following question using ONLY the context below.
+Cite the source document and section for each claim you make.
+
+Question: {query}
+
+Context:
+{context}"""
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+
 # ── Generation metadata ────────────────────────────────────────────────
 
 USAGE_FIELDS = ("input_tokens", "output_tokens",
@@ -496,20 +542,6 @@ class RAGEngine:
 
         # provider == "deepseek" (OpenAI-compatible): the prompt asks for
         # citations written into the answer text.
-        context = "\n\n---\n\n".join(
-            f"[Chunk {i}] Source: {c['source']}"
-            + (f", Section: {c['section']}" if c["section"] else "")
-            + f"\n{c['text']}"
-            for i, c in enumerate(chunks, start=1)
-        )
-        user_content = f"""Answer the following question using ONLY the context below.
-Cite the source document and section for each claim you make.
-
-Question: {query}
-
-Context:
-{context}"""
-
         from openai import OpenAI
         client = OpenAI(
             base_url="https://api.deepseek.com",
@@ -518,10 +550,7 @@ Context:
         response = client.chat.completions.create(
             model=model,
             max_tokens=1024,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
+            messages=deepseek_messages(query, chunks),
         )
         returned = getattr(response, "model", None)
         meta["response_model"] = returned if isinstance(returned, str) else None
@@ -542,19 +571,6 @@ Context:
         """
         import anthropic
         client = anthropic.Anthropic()
-        documents = [
-            {
-                "type": "document",
-                "source": {"type": "text", "media_type": "text/plain", "data": c["text"]},
-                "title": chunk_title(c),
-                "citations": {"enabled": True},
-            }
-            for c in chunks
-        ]
-        question = {
-            "type": "text",
-            "text": f"Answer this question using ONLY the documents above.\n\nQuestion: {query}",
-        }
         # Sonnet 5.5 always thinks, and thinking counts against max_tokens,
         # so leave headroom. On a safety refusal, the server retries on a
         # fallback model ("default" routing by refusal category).
@@ -562,7 +578,7 @@ Context:
             model=model,
             max_tokens=16000,
             system=ANTHROPIC_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": [*documents, question]}],
+            messages=[{"role": "user", "content": anthropic_content(query, chunks)}],
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
