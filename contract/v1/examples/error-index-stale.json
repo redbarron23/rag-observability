@@ -18,10 +18,10 @@
     "schema": "schemas/error-response.schema.json",
     "headers": {
       "Content-Type": "application/json; charset=utf-8",
-      "X-RAG-Contract-Version": "1.0.0"
+      "X-RAG-Contract-Version": "1.1.0"
     },
     "body": {
-      "contract_version": "1.0.0",
+      "contract_version": "1.1.0",
       "error": {
         "code": "index_stale",
         "message": "Source documents changed since ingestion. Run python ingest.py.",

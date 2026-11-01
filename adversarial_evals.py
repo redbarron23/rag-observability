@@ -82,6 +82,19 @@ def source_problems(chunks: list[dict], must_retrieve: list[str]) -> list[str]:
     return [f"not retrieved: {s}" for s in must_retrieve if s not in retrieved]
 
 
+def policy_problems(chunks: list[dict], expected: dict[str, str]) -> list[str]:
+    """Retrieved chunks whose policy status (issue #78) differs from the
+    scenario's expected_policy, plus expected documents never retrieved."""
+    problems = []
+    for source, status in expected.items():
+        seen = {(c.get("policy") or {}).get("status") for c in chunks if c["source"] == source}
+        if not seen:
+            problems.append(f"policy check: {source} not retrieved")
+        elif seen != {status}:
+            problems.append(f"policy status of {source} is {sorted(seen)}, expected {status!r}")
+    return problems
+
+
 def supersession_problems(chunks: list[dict], supersession: dict) -> list[str]:
     """The replacement must be retrieved, and every retrieved chunk of the
     superseded document must carry its supersession marker, so the model can
@@ -156,6 +169,10 @@ def run_offline(engine, scenarios: list[dict], verbose: bool,
             sup = supersession_problems(chunks, sc["supersession"])
             dims["supersession"] = not sup
             problems += sup
+        if "expected_policy" in sc:
+            wrong = policy_problems(chunks, sc["expected_policy"])
+            dims["policy"] = not wrong
+            problems += wrong
         if "prompt" in sc:
             bad = prompt_problems(sc["question"], chunks, sc["prompt"]["injected_text"])
             dims["prompt"] = not bad

@@ -68,6 +68,25 @@ CORPUS = {
         "messages is safe only after the cause is fixed; record the replay in the incident "
         "channel so the next responder knows it already happened.\n"
     ),
+    # Policy front matter (contract 1.1): v2 supersedes v1, v3 is announced for
+    # 2099 and will supersede v2. Far-off dates keep the statuses stable.
+    "policies/log-retention-v1.md": (
+        "---\npolicy_id: example-log-retention\nversion: 1\neffective_from: 2020-01-01\n---\n"
+        "# Log Retention Policy v1\n\n## Retention period\n\n"
+        "Example Org keeps application logs for 30 days under this retention policy.\n"
+    ),
+    "policies/log-retention-v2.md": (
+        "---\npolicy_id: example-log-retention\nversion: 2\neffective_from: 2021-01-01\n"
+        "supersedes: [example-log-retention@1]\n---\n"
+        "# Log Retention Policy v2\n\n## Retention period\n\n"
+        "Example Org keeps application logs for 90 days under this retention policy.\n"
+    ),
+    "policies/log-retention-v3.md": (
+        "---\npolicy_id: example-log-retention\nversion: 3\neffective_from: 2099-01-01\n"
+        "supersedes: [example-log-retention@2]\n---\n"
+        "# Log Retention Policy v3\n\n## Retention period\n\n"
+        "Example Org will keep application logs for 180 days under this retention policy.\n"
+    ),
 }
 
 # Cosine geometry chosen so the examples show each hit kind: A is the "required
@@ -76,7 +95,7 @@ CORPUS = {
 A, B, D = [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]
 E = [0.35, float(np.sqrt(1 - 0.35 ** 2)), 0.0]
 KEYWORD_VECTORS = (("dead-letter", [0.0, 1.0, 0.0]), ("sandbox", E),
-                   ("consumer lag", B), ("required", A))
+                   ("consumer lag", B), ("required", A), ("retention", [0.0, -1.0, 0.0]))
 
 
 def keyword_embedder():
@@ -103,6 +122,12 @@ CASES = {
         "half is appended with expanded_from set. Expanded hits can exceed k and max_distance.",
         "current", {}, "POST", "/retrieve", PIN, {"question": "How do I investigate consumer lag?",
                                                   "k": 1}),
+    "retrieve-policy-status": (
+        "Contract 1.1: each hit carries its document's policy applicability. v2 supersedes v1 "
+        "explicitly; v3 is not in effect until 2099 and is listed as pending for v2. Superseded "
+        "and future guidance is labelled, never filtered out.",
+        "current", {}, "POST", "/retrieve", {api.CONTRACT_HEADER: "1.1"},
+        {"question": "How long does the retention policy keep logs?", "k": 3}),
     "retrieve-no-match": (
         "No chunk is within the cutoff: a successful 200 with empty hits, distinct from every "
         "failure.",
@@ -198,6 +223,9 @@ def run_case(persist: Path, options: dict, method: str, path: str, headers: dict
     return request_headers, resp.status, response_headers, data
 
 
+AS_OF = "2026-11-01"  # policy as_of is the server's current date; fixed in examples
+
+
 def normalize(body: dict) -> dict:
     body = copy.deepcopy(body)
     corpus = body.get("corpus") or {}
@@ -211,6 +239,8 @@ def normalize(body: dict) -> dict:
             holder["freshness"]["checked_at"] = CHECKED_AT
     for hit in body.get("hits", []):
         hit["distance"] = round(hit["distance"], 4)
+        if hit.get("policy"):
+            hit["policy"]["as_of"] = AS_OF
     return body
 
 
@@ -355,7 +385,7 @@ def test_open_schema_tolerates_additive_fields():
 
 @pytest.mark.parametrize("requested, ok", [
     (None, True), ("1", True), ("1.0", True), ("1.0.7", True), (" 1 ", True),
-    ("1.1", False), ("2", False), ("0", False), ("", False), ("v1", False), ("1.x", False),
+    ("1.1", True), ("1.1.3", True), ("1.2", False), ("2", False), ("0", False), ("", False), ("v1", False), ("1.x", False),
     ("latest", False),
 ])
 def test_contract_version_pinning(requested, ok):

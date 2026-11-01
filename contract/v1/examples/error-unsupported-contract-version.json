@@ -18,13 +18,13 @@
     "schema": "schemas/error-response.schema.json",
     "headers": {
       "Content-Type": "application/json; charset=utf-8",
-      "X-RAG-Contract-Version": "1.0.0"
+      "X-RAG-Contract-Version": "1.1.0"
     },
     "body": {
-      "contract_version": "1.0.0",
+      "contract_version": "1.1.0",
       "error": {
         "code": "unsupported_contract_version",
-        "message": "This server provides contract version 1.0.0, which is not compatible with requested version 2."
+        "message": "This server provides contract version 1.1.0, which is not compatible with requested version 2."
       }
     }
   }

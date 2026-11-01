@@ -7,7 +7,7 @@ It is **retrieval-only**: it never calls Claude, DeepSeek or any other LLM, need
 and returns no generated answer. The caller generates and cites its own answer from the returned
 chunks. It uses only the Python standard library on top of `requirements.txt`.
 
-The wire format is a versioned contract, currently **1.0.0**, published as plain JSON Schema with
+The wire format is a versioned contract, currently **1.1.0**, published as plain JSON Schema with
 example requests and responses in [`contract/v1/`](../contract/v1/). See
 [Contract and versioning](#contract-and-versioning) for how a client pins it and what may change.
 
@@ -61,7 +61,7 @@ curl -s http://127.0.0.1:8765/retrieve \
 
 ```json
 {
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "query": {
     "question": "Which tags are required on every resource?",
     "k": 2,
@@ -78,7 +78,10 @@ curl -s http://127.0.0.1:8765/retrieve \
       "section": "Required tags",
       "distance": 0.2972,
       "exact_term_match": false,
-      "expanded_from": null
+      "expanded_from": null,
+      "policy": {"status": "unversioned", "as_of": "2026-11-01", "policy_id": null, "version": null,
+                 "effective_from": null, "effective_until": null, "supersedes": [],
+                 "superseded_by": [], "pending_superseded_by": [], "conflicts_with": [], "errors": []}
     },
     {
       "rank": 2,
@@ -89,7 +92,10 @@ curl -s http://127.0.0.1:8765/retrieve \
       "section": "Enforcement",
       "distance": 0.416,
       "exact_term_match": false,
-      "expanded_from": null
+      "expanded_from": null,
+      "policy": {"status": "unversioned", "as_of": "2026-11-01", "policy_id": null, "version": null,
+                 "effective_from": null, "effective_until": null, "supersedes": [],
+                 "superseded_by": [], "pending_superseded_by": [], "conflicts_with": [], "errors": []}
     }
   ],
   "corpus": {
@@ -145,7 +151,7 @@ is no index ([`health-response.schema.json`](../contract/v1/schemas/health-respo
 
 ## Errors
 
-Errors use one shape, `{"contract_version": "1.0.0", "error": {"code": "...", "message": "..."}}`
+Errors use one shape, `{"contract_version": "1.1.0", "error": {"code": "...", "message": "..."}}`
 ([`error-response.schema.json`](../contract/v1/schemas/error-response.schema.json)). Branch on
 `code`, never on `message`.
 
@@ -173,6 +179,33 @@ checks that pointer on every request, so after `python ingest.py` the next reque
 index and reports its new `corpus` identity, with no restart and without reloading the embedding
 model. Editing files under `data/` without re-ingesting does not change results; it makes
 `freshness.status` `stale` (or a `503` with `--require-fresh`).
+
+## Policy applicability (contract 1.1)
+
+Since contract 1.1 every hit carries `policy`: whether its document's policy applies on `as_of`
+(the server's current UTC date). It comes from optional front matter at the top of a Markdown
+file (`policy_id`, `version`, `effective_from`, `effective_until`,
+`supersedes: [<policy_id>@<version>, ...]`; see the [guide](guide.md#policy-metadata)).
+
+| `policy.status` | Meaning | What a client should do |
+| --- | --- | --- |
+| `active` | In effect, and no other policy in effect has the same `policy_id` | Use it |
+| `superseded` | A policy that is no longer future explicitly supersedes it (`superseded_by`) | Prefer the superseding policy; quote this one only as history |
+| `conflict` | Another policy in effect has the same `policy_id` and neither supersedes the other (`conflicts_with`), or supersession is circular | Report the conflict and both sources; do not pick one by date |
+| `future` | `effective_from` is after `as_of` | Not yet applicable; say when it starts |
+| `expired` | `effective_until` is before `as_of` | No longer applicable |
+| `invalid` | Its front matter is malformed (`errors`) | Treat applicability as unknown |
+| `unversioned` | No policy metadata (most documents) | Applicability is not stated; treat as ordinary content |
+| `unavailable` | The index predates policy metadata | Re-run `python ingest.py` on the server |
+
+`pending_superseded_by` lists future policies that will supersede an `active` one. Applicability
+**labels** hits; it never filters or reorders them, so superseded and future guidance is still
+returned. A newer `effective_from` alone never establishes authority: only an explicit
+`supersedes` does.
+
+Policy applicability is independent of `freshness`. Freshness says whether the index matches the
+files on disk; an unchanged, `current` file can still describe an `expired` policy, and a fresh
+re-ingest does not make a superseded policy apply again.
 
 ## Authentication and access boundary
 
@@ -235,8 +268,8 @@ often keep only the status and body, see it too.
 | Change | Bump | Examples |
 | --- | --- | --- |
 | Wire format unchanged | PATCH | Clearer descriptions, new examples, documentation |
-| Additive | MINOR | A new response field (for example policy-version metadata on hits, #78); a new optional request field whose default keeps today's behaviour; a looser limit (a larger maximum `k`); a new error code for a new failure condition |
-| Breaking | MAJOR | Removing or renaming a field; changing a field's type, unit or meaning; a new value for `freshness.status`, `corpus.provenance`, `content_trust`, `generated`, `retrieval` or the `/health` `status`; a new required request field; a tighter limit; a different status or code for an existing condition; turning a failure into a `200` or the reverse |
+| Additive | MINOR | A new response field (for example `policy` on hits, added in 1.1 for #78); a new optional request field whose default keeps today's behaviour; a looser limit (a larger maximum `k`); a new error code for a new failure condition |
+| Breaking | MAJOR | Removing or renaming a field; changing a field's type, unit or meaning; a new value for `freshness.status`, `corpus.provenance`, `content_trust`, `generated`, `retrieval`, `policy.status` or the `/health` `status`; a new required request field; a tighter limit; a different status or code for an existing condition; turning a failure into a `200` or the reverse |
 
 Not covered by the version: which chunks a question retrieves, their distances and ranking, the
 default `k` and `max_distance` (the applied values are always echoed in `query`; send them
@@ -262,7 +295,7 @@ own minor is at least the one requested, so `1.0` means "any 1.x". Otherwise it 
 ```bash
 curl -s http://127.0.0.1:8765/retrieve -H 'Content-Type: application/json' \
   -H 'X-RAG-Contract-Version: 2' -d '{"question": "Which tags are required?"}'
-# {"contract_version": "1.0.0", "error": {"code": "unsupported_contract_version", ...}}
+# {"contract_version": "1.1.0", "error": {"code": "unsupported_contract_version", ...}}
 ```
 
 A request without the header is served with the current contract, so existing clients keep

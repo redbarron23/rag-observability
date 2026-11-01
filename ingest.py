@@ -30,6 +30,8 @@ from uuid import uuid4
 import chromadb
 from chromadb.errors import NotFoundError
 
+import policy
+
 EMBED_MODEL = "all-MiniLM-L6-v2"
 COLLECTION_PREFIX = "observability-docs"
 LEGACY_COLLECTION = COLLECTION_PREFIX  # indexes created before the active-collection pointer
@@ -310,6 +312,16 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     resolved_dir = str(Path(data_dir).resolve())
     sources = {doc["rel_path"]: doc["sha256"] for doc in docs}
 
+    # ── Policy front matter (issue #78): stripped from the chunked text ──
+    records = {}
+    for doc in docs:
+        fields, doc["body"], errors = policy.parse_front_matter(doc["text"])
+        records[doc["rel_path"]] = policy.validate(fields, errors)
+    policies = policy.build_registry(records)
+    for source, record in policies.items():
+        for error in record["errors"]:
+            print(f"Warning: {source}: {error} (treated as invalid policy metadata)")
+
     # ── Find an active index whose embeddings can be reused ──────
     versions = embedding_versions()
     previous, indexed = None, {}
@@ -335,7 +347,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     embeddings: list[list[float] | None] = []
     added, changed = [], []
     for doc in docs:
-        chunks = chunk_text_simple(doc["text"], chunk_size)
+        chunks = chunk_text_simple(doc["body"], chunk_size)
         for i, c in enumerate(chunks):
             c["index"] = i
             c["source"] = doc["rel_path"]
@@ -361,6 +373,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
         raise ValueError("No usable document text found; the index was not changed.")
     if (previous is not None and not (added or changed or deleted)
             and previous_manifest["data_dir"] == resolved_dir
+            and previous_manifest.get("policies") == policies
             and previous.count() == len(all_chunks)):
         print("Index is up to date; nothing to embed.")
         return len(all_chunks)
@@ -417,6 +430,9 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
         # The collection this one replaces; --prune keeps it for rollback.
         "previous_collection": replaced,
         "sources": sources,
+        # Validated policy front matter per source; applicability is decided
+        # at query time (policy.applicability).
+        "policies": policies,
         "corpus_sha256": sha256(json.dumps(sources, sort_keys=True).encode("utf-8")).hexdigest(),
     }
     collection = client.create_collection(

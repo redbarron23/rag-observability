@@ -68,7 +68,7 @@ LOOPBACK_HOST_NAMES = {"localhost", "127.0.0.1", "::1"}
 
 # The wire contract published in contract/v1/ (docs/http-api.md#contract-versioning).
 # MINOR: additive changes only; MAJOR: anything a pinned client could break on.
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 CONTRACT_HEADER = "X-RAG-Contract-Version"
 _PINNED_VERSION_RE = re.compile(r"(\d{1,4})(?:\.(\d{1,4})(?:\.\d{1,4})?)?")
 
@@ -282,6 +282,9 @@ class RetrievalService:
             "exact_term_match": kept_by_exact_term(c, max_distance),
             # Appended because a ranked hit is in the same split section (#72).
             "expanded_from": c.get("expanded_from"),
+            # Policy applicability on the server's current UTC date (#78);
+            # independent of source-file freshness.
+            "policy": c.get("policy"),
         } for rank, c in enumerate(chunks, start=1)]
         return {
             "contract_version": CONTRACT_VERSION,
