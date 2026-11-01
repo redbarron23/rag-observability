@@ -1,0 +1,165 @@
+# Full generation evals (python evals.py --with-llm) against Claude.
+# Each run makes 21 Anthropic API calls per retrieval mode (about $0.12 per mode).
+# Runs weekly and on manual dispatch only: never on pull_request, so forks
+# cannot reach the API key and PRs do not spend money.
+
+name: LLM evals
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Mondays 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      retrieval:
+        description: Retrieval mode to evaluate
+        type: choice
+        options: [both, vector, hybrid]
+        default: both
+
+permissions:
+  contents: read
+
+concurrency:
+  group: llm-evals-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-secret:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      has-key: ${{ steps.check.outputs.has-key }}
+    steps:
+      - id: check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "has-key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=LLM evals skipped::ANTHROPIC_API_KEY repository secret is not set. Add it with 'gh secret set ANTHROPIC_API_KEY' to enable these evals."
+            {
+              echo "## LLM evals skipped"
+              echo
+              echo "The \`ANTHROPIC_API_KEY\` repository secret is not set, so no evals ran."
+              echo "Add it with \`gh secret set ANTHROPIC_API_KEY\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  evals:
+    needs: check-secret
+    if: needs.check-secret.outputs.has-key == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Scheduled runs have no inputs, so they fall through to both modes.
+        retrieval: ${{ fromJSON(inputs.retrieval == 'vector' && '["vector"]' || inputs.retrieval == 'hybrid' && '["hybrid"]' || '["vector","hybrid"]') }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install CPU-only torch (keeps the install small)
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Cache embedding model
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2
+
+      - name: Ingest sample corpus
+        run: python ingest.py
+
+      - name: Full evals (${{ matrix.retrieval }})
+        id: evals
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LLM_PROVIDER: anthropic
+          RETRIEVAL: ${{ matrix.retrieval }}
+        run: |
+          mkdir -p eval-results
+          set +e
+          python evals.py --with-llm --verbose --retrieval "$RETRIEVAL" 2>&1 | tee "eval-results/evals-$RETRIEVAL.log"
+          status=${PIPESTATUS[0]}
+          echo "exit-code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Write results JSON and job summary
+        if: always() && steps.evals.outcome != 'skipped'
+        env:
+          RETRIEVAL: ${{ matrix.retrieval }}
+          EXIT_CODE: ${{ steps.evals.outputs.exit-code }}
+          COMMIT: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: python
+        run: |
+          import datetime, json, os, re
+          from pathlib import Path
+
+          mode = os.environ["RETRIEVAL"]
+          exit_code = os.environ.get("EXIT_CODE") or "missing"
+          log_path = Path(f"eval-results/evals-{mode}.log")
+          log = log_path.read_text() if log_path.exists() else ""
+
+          def ratio(label):
+              m = re.search(rf"^{label}:\s+(\d+)/(\d+)", log, re.M)
+              return {"passed": int(m[1]), "total": int(m[2])} if m else None
+
+          dims = re.search(r"^By dimension: (.+)$", log, re.M)
+          cases = [{"id": cid, "status": st}
+                   for st, cid in re.findall(r"^\[(PASS|FAIL)\] (\S+)", log, re.M)]
+          result = {
+              "retrieval": mode,
+              "model": "claude-sonnet-5-5 (query.py default)",
+              "passed": exit_code == "0",
+              "exit_code": exit_code,
+              "commit": os.environ["COMMIT"],
+              "run_url": os.environ["RUN_URL"],
+              "finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "retrieval_results": ratio("Retrieval results"),
+              "full_results": ratio("Full results"),
+              "combined": ratio("Combined"),
+              "by_dimension": dims[1] if dims else None,
+              "cases": cases,
+          }
+          Path(f"eval-results/evals-{mode}.json").write_text(json.dumps(result, indent=2) + "\n")
+
+          combined = result["combined"]
+          failing = sorted({c["id"] for c in cases if c["status"] == "FAIL"})
+          lines = [
+              f"## LLM evals: {mode} retrieval - {'PASS' if result['passed'] else 'FAIL'}",
+              "",
+              f"- Combined: {combined['passed']}/{combined['total']}" if combined
+              else "- Combined: not reported (see log artifact)",
+              f"- By dimension: {result['by_dimension'] or 'not reported'}",
+              f"- Failing cases: {', '.join(failing) if failing else 'none'}",
+              "",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write("\n".join(lines) + "\n")
+
+      - name: Upload eval results
+        if: always() && steps.evals.outcome != 'skipped'
+        uses: actions/upload-artifact@v7
+        with:
+          name: llm-evals-${{ matrix.retrieval }}
+          path: eval-results/
+          retention-days: 90
+
+      - name: Fail job if evals failed
+        if: steps.evals.outputs.exit-code != '0'
+        env:
+          EXIT_CODE: ${{ steps.evals.outputs.exit-code }}
+        run: |
+          echo "::error title=LLM evals failed::python evals.py --with-llm exited with ${EXIT_CODE:-no exit code}"
+          exit 1
