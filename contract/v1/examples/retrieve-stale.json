@@ -1,0 +1,79 @@
+{
+  "description": "A source changed after ingestion. Without --require-fresh the server still answers, and freshness says which sources changed.",
+  "setup": "Fictional corpus ingested, then reference/tagging-policy.md edited.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0"
+    },
+    "body": {
+      "question": "Which tags are required, including cost-centre?",
+      "k": 3
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "schemas/retrieve-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "query": {
+        "question": "Which tags are required, including cost-centre?",
+        "k": 3,
+        "max_distance": 0.6,
+        "retrieval": "vector"
+      },
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "reference/tagging-policy.md#0",
+          "text": "Example Org Tagging Policy > Required tags\n\nEvery resource in the fictional Example Org estate carries the `owner`, `cost-centre` and `environment` tags.",
+          "source": "reference/tagging-policy.md",
+          "file": "tagging-policy.md",
+          "section": "Required tags",
+          "distance": 0.0,
+          "exact_term_match": false,
+          "expanded_from": null
+        },
+        {
+          "rank": 2,
+          "chunk_id": "reference/tagging-policy.md#1",
+          "text": "Example Org Tagging Policy > Tag exceptions\n\nSandbox subscriptions may omit the cost-centre tag for up to 30 days.",
+          "source": "reference/tagging-policy.md",
+          "file": "tagging-policy.md",
+          "section": "Tag exceptions",
+          "distance": 0.65,
+          "exact_term_match": true,
+          "expanded_from": null
+        }
+      ],
+      "corpus": {
+        "provenance": "available",
+        "corpus_sha256": "6cae9c94af4600609f084ee2ccd0b60a3d8efb1a7f01310c0f0d7be8fdd583b9",
+        "ingested_at": "2026-01-15T09:30:00+00:00",
+        "embedding_model": "all-MiniLM-L6-v2",
+        "embedding_revision": "0000000000000000000000000000000000000000",
+        "chunk_size": 500,
+        "document_count": 2,
+        "collection": "observability-docs-00000000000000000000000000000000",
+        "chunk_count": 4
+      },
+      "freshness": {
+        "status": "stale",
+        "checked_at": "2026-01-15T09:31:00+00:00",
+        "added": [],
+        "modified": [
+          "reference/tagging-policy.md"
+        ],
+        "deleted": []
+      },
+      "content_trust": "untrusted",
+      "generated": false
+    }
+  }
+}

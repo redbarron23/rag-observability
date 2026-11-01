@@ -1,0 +1,31 @@
+{
+  "description": "No index has been built yet (run python ingest.py). The server keeps running and serves the index once it exists.",
+  "setup": "No index has been built.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0"
+    },
+    "body": {
+      "question": "Which tags are required, including cost-centre?",
+      "k": 3
+    }
+  },
+  "response": {
+    "status": 503,
+    "schema": "schemas/error-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "error": {
+        "code": "index_unavailable",
+        "message": "No index found. Run python ingest.py, then retry."
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "description": "The server was started with RAG_API_KEY; the client sends it as a bearer token.",
+  "setup": "Fictional corpus ingested; sources unchanged. Server started with RAG_API_KEY=example-key.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "1.0",
+      "Authorization": "Bearer example-key"
+    },
+    "body": {
+      "question": "Which tags are required?",
+      "k": 1,
+      "max_distance": 0.5
+    }
+  },
+  "response": {
+    "status": 200,
+    "schema": "schemas/retrieve-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "query": {
+        "question": "Which tags are required?",
+        "k": 1,
+        "max_distance": 0.5,
+        "retrieval": "vector"
+      },
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "reference/tagging-policy.md#0",
+          "text": "Example Org Tagging Policy > Required tags\n\nEvery resource in the fictional Example Org estate carries the `owner`, `cost-centre` and `environment` tags.",
+          "source": "reference/tagging-policy.md",
+          "file": "tagging-policy.md",
+          "section": "Required tags",
+          "distance": 0.0,
+          "exact_term_match": false,
+          "expanded_from": null
+        }
+      ],
+      "corpus": {
+        "provenance": "available",
+        "corpus_sha256": "6cae9c94af4600609f084ee2ccd0b60a3d8efb1a7f01310c0f0d7be8fdd583b9",
+        "ingested_at": "2026-01-15T09:30:00+00:00",
+        "embedding_model": "all-MiniLM-L6-v2",
+        "embedding_revision": "0000000000000000000000000000000000000000",
+        "chunk_size": 500,
+        "document_count": 2,
+        "collection": "observability-docs-00000000000000000000000000000000",
+        "chunk_count": 4
+      },
+      "freshness": {
+        "status": "current",
+        "checked_at": "2026-01-15T09:31:00+00:00",
+        "added": [],
+        "modified": [],
+        "deleted": []
+      },
+      "content_trust": "untrusted",
+      "generated": false
+    }
+  }
+}

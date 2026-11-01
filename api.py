@@ -12,11 +12,16 @@ Endpoints
     POST /retrieve   {"question": "...", "k": 6, "max_distance": 0.6}
     GET  /health     index identity and source freshness
 
+Every response carries the contract version (`contract_version` in the body and
+the X-RAG-Contract-Version header). A client may pin one by sending
+X-RAG-Contract-Version: MAJOR[.MINOR]; an incompatible pin is rejected with
+400 unsupported_contract_version. The JSON Schemas are in contract/v1/.
+
 POST /retrieve returns the chunks RAGEngine.retrieve() selects, with their
 source, section and cosine distance, plus the indexed corpus identity and
 freshness. It never calls an LLM provider, so it needs no provider key; the
 caller generates any answer itself. Uses only the standard library on top of
-the existing requirements. See docs/http-api.md for the full schema.
+the existing requirements. See docs/http-api.md for the contract and policy.
 """
 
 import argparse
@@ -26,6 +31,7 @@ import json
 import logging
 import math
 import os
+import re
 import socket
 import sys
 import threading
@@ -59,6 +65,12 @@ FRESHNESS_TTL_SECONDS = 10.0
 API_KEY_ENV = "RAG_API_KEY"
 REQUEST_FIELDS = {"question", "k", "max_distance"}
 LOOPBACK_HOST_NAMES = {"localhost", "127.0.0.1", "::1"}
+
+# The wire contract published in contract/v1/ (docs/http-api.md#contract-versioning).
+# MINOR: additive changes only; MAJOR: anything a pinned client could break on.
+CONTRACT_VERSION = "1.0.0"
+CONTRACT_HEADER = "X-RAG-Contract-Version"
+_PINNED_VERSION_RE = re.compile(r"(\d{1,4})(?:\.(\d{1,4})(?:\.\d{1,4})?)?")
 
 
 class ApiError(Exception):
@@ -97,6 +109,28 @@ def validate_request(body: object) -> tuple[str, int, float]:
             or not math.isfinite(max_distance) or not 0 <= max_distance <= 2):
         raise invalid("'max_distance' must be a number from 0 to 2 (2 disables the cutoff).")
     return question, k, float(max_distance)
+
+
+def check_contract_version(requested: str | None) -> None:
+    """Reject a pinned contract version this server cannot honour.
+
+    A client pins MAJOR or MAJOR.MINOR (a patch number is accepted and ignored).
+    The pin is compatible when the major matches and the server's minor is at
+    least the requested one, so a client that needs fields added in 1.1 fails
+    explicitly against a 1.0 server instead of silently missing them.
+    """
+    if requested is None:
+        return
+    major, minor, _ = (int(part) for part in CONTRACT_VERSION.split("."))
+    match = _PINNED_VERSION_RE.fullmatch(requested.strip())
+    if not match:
+        raise ApiError(400, "unsupported_contract_version",
+                       f"{CONTRACT_HEADER} must be MAJOR or MAJOR.MINOR, "
+                       f"for example {major} or {major}.{minor}.")
+    if int(match[1]) != major or int(match[2] or 0) > minor:
+        raise ApiError(400, "unsupported_contract_version",
+                       f"This server provides contract version {CONTRACT_VERSION}, "
+                       f"which is not compatible with requested version {match[0]}.")
 
 
 def corpus_identity(engine: RAGEngine) -> dict:
@@ -218,7 +252,8 @@ class RetrievalService:
         with self._lock:
             engine = self.engine()
             corpus, fresh = corpus_identity(engine), self.freshness(engine)
-        return {"status": "ok" if fresh["status"] == "current" else "degraded",
+        return {"contract_version": CONTRACT_VERSION,
+                "status": "ok" if fresh["status"] == "current" else "degraded",
                 "retrieval": self.retrieval, "corpus": corpus, "freshness": fresh}
 
     def retrieve(self, body: object) -> dict:
@@ -249,6 +284,7 @@ class RetrievalService:
             "expanded_from": c.get("expanded_from"),
         } for rank, c in enumerate(chunks, start=1)]
         return {
+            "contract_version": CONTRACT_VERSION,
             "query": {"question": question, "k": k, "max_distance": max_distance,
                       "retrieval": self.retrieval},
             "hits": hits,
@@ -294,13 +330,15 @@ def make_handler(service: RetrievalService, api_key: str | None, check_host: boo
             self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header(CONTRACT_HEADER, CONTRACT_VERSION)
             for name, value in (extra or {}).items():
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
         def _error(self, err: ApiError) -> None:
-            payload = {"error": {"code": err.code, "message": err.message, **(err.details or {})}}
+            payload = {"contract_version": CONTRACT_VERSION,
+                       "error": {"code": err.code, "message": err.message, **(err.details or {})}}
             extra = {"WWW-Authenticate": "Bearer"} if err.status == 401 else None
             if err.status in (400, 401, 404, 405, 411, 413, 415):
                 self.close_connection = True
@@ -339,6 +377,7 @@ def make_handler(service: RetrievalService, api_key: str | None, check_host: boo
             path = self.path.split("?", 1)[0]
             try:
                 self._authorize()
+                check_contract_version(self.headers.get(CONTRACT_HEADER))
                 if path == "/retrieve":
                     if method != "POST":
                         raise ApiError(405, "method_not_allowed", "Use POST /retrieve.")

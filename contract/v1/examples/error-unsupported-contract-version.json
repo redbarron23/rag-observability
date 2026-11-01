@@ -1,0 +1,31 @@
+{
+  "description": "The client pinned a contract major version this server does not provide. It fails explicitly instead of returning hits the client cannot read.",
+  "setup": "Fictional corpus ingested; sources unchanged.",
+  "request": {
+    "method": "POST",
+    "path": "/retrieve",
+    "headers": {
+      "Content-Type": "application/json",
+      "X-RAG-Contract-Version": "2"
+    },
+    "body": {
+      "question": "Which tags are required, including cost-centre?",
+      "k": 3
+    }
+  },
+  "response": {
+    "status": 400,
+    "schema": "schemas/error-response.schema.json",
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-RAG-Contract-Version": "1.0.0"
+    },
+    "body": {
+      "contract_version": "1.0.0",
+      "error": {
+        "code": "unsupported_contract_version",
+        "message": "This server provides contract version 1.0.0, which is not compatible with requested version 2."
+      }
+    }
+  }
+}
