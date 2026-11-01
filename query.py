@@ -205,7 +205,10 @@ def format_citations(citations: list[dict]) -> str:
 class RAGEngine:
     """Retrieve-and-generate over observability docs."""
 
-    def __init__(self, persist_dir: str = PERSIST_DIR, retrieval: str = DEFAULT_RETRIEVAL):
+    def __init__(self, persist_dir: str = PERSIST_DIR, retrieval: str = DEFAULT_RETRIEVAL,
+                 embedder: SentenceTransformer | None = None):
+        """Open the active collection; pass an already-loaded embedder to reuse it
+        (the HTTP service keeps one model across index reloads)."""
         if retrieval not in RETRIEVAL_MODES:
             raise ValueError(
                 f"Unknown retrieval mode {retrieval!r}; expected one of {list(RETRIEVAL_MODES)}"
@@ -218,7 +221,8 @@ class RAGEngine:
         except FileNotFoundError:
             name = COLLECTION_NAME  # indexes created before replacement switching
         self.collection = self.client.get_collection(name)
-        self.embedder = SentenceTransformer(EMBED_MODEL)
+        self.collection_name = name
+        self.embedder = embedder if embedder is not None else SentenceTransformer(EMBED_MODEL)
 
     def retrieve(self, query: str, n_results: int = N_RESULTS,
                  max_distance: float | None = MAX_DISTANCE) -> list[dict]:

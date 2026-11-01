@@ -72,6 +72,20 @@ The launch command disables file watching to avoid inspecting the model librarie
 the app after editing its Python code.
 The interface is intended for local use and has no authentication.
 
+## Retrieval HTTP API
+
+```bash
+python ingest.py
+python api.py   # http://127.0.0.1:8765, no provider key needed
+curl -s http://127.0.0.1:8765/retrieve -H 'Content-Type: application/json' \
+  -d '{"question": "Which tags are required on every resource?", "k": 3}'
+```
+
+`POST /retrieve` returns the retrieved chunks (text, source, section, distance) with the indexed
+corpus identity and freshness, and never generates an answer. It binds to loopback by default;
+set `RAG_API_KEY` to require a bearer token. See the [HTTP API reference](docs/http-api.md) for
+the schema, errors, access boundary and a client example.
+
 ## How it works
 
 ```mermaid
