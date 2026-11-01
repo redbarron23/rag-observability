@@ -40,3 +40,6 @@ jobs:
 
       - name: Retrieval evals (no API key needed)
         run: python evals.py
+
+      - name: Adversarial offline checks (separate fixture index, no API key needed)
+        run: python adversarial_evals.py
