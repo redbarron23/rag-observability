@@ -12,6 +12,11 @@ CHUNK = {
     "source": "reference/coverage-targets.md", "section": "Tier 1",
     "distance": 0.25, "text": "The Tier 1 target is 85% within 4 months.",
 }
+CITATION = {
+    "source": "reference/coverage-targets.md", "section": "Tier 1", "chunk": 1,
+    "cited_text": "The Tier 1 target is\n85% within 4 months.",
+}
+ANSWER = "85% within 4 months (source: coverage-targets.md)."
 
 
 @pytest.fixture
@@ -19,7 +24,7 @@ def ui(monkeypatch):
     st.cache_resource.clear()
     engine = Mock()
     engine.retrieve.return_value = [CHUNK]
-    engine.answer.return_value = ("85% within 4 months (source: coverage-targets.md).", [CHUNK])
+    engine.answer_with_citations.return_value = (ANSWER, [CHUNK], [CITATION])
     factory = Mock(return_value=engine)
     monkeypatch.setattr("query.RAGEngine", factory)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -38,27 +43,68 @@ def test_retrieval_works_without_key_and_retains_evidence_on_rerun(ui):
     app, engine, factory = ui
     factory.assert_not_called()
     submit(app, "Find sources")
-    factory.assert_called_once_with(persist_dir="chroma_db")
+    factory.assert_called_once_with(persist_dir="chroma_db", retrieval="vector")
     engine.retrieve.assert_called_once_with(
         "What is the coverage target for Tier 1 production resources?",
         n_results=6, max_distance=0.6,
     )
-    engine.answer.assert_not_called()
+    engine.answer_with_citations.assert_not_called()
     assert "Tier 1" in app.expander[0].label
     assert "distance 0.250" in app.expander[0].label
     assert app.text[0].value == CHUNK["text"]
     app.sidebar.slider[0].set_value(3).run()
     engine.retrieve.assert_called_once()
     assert app.text[0].value == CHUNK["text"]
-    assert any("top 6" in caption.value for caption in app.caption)
+    assert any("vector retrieval · top 6" in caption.value for caption in app.caption)
 
 
-def test_generation_uses_engine_answer(ui):
+def test_generation_shows_quoted_citations(ui):
     app, engine, _ = ui
     submit(app, "Generate answer")
-    engine.answer.assert_called_once()
+    engine.answer_with_citations.assert_called_once_with(
+        "What is the coverage target for Tier 1 production resources?",
+        n_results=6, max_distance=0.6,
+    )
     engine.retrieve.assert_not_called()
-    assert any("85% within 4 months" in element.value for element in app.markdown)
+    assert any(element.value == ANSWER for element in app.markdown)
+    citations = app.expander[0]
+    assert citations.label == "Quoted citations (1)"
+    assert "[1] reference/coverage-targets.md, section 'Tier 1'" in citations.markdown[0].value
+    assert citations.text[0].value == "The Tier 1 target is 85% within 4 months."
+    assert "Tier 1" in app.expander[1].label
+
+
+@pytest.mark.parametrize("citations", [None, []])
+def test_generation_without_structured_citations_shows_no_quotes(ui, citations):
+    app, engine, _ = ui
+    engine.answer_with_citations.return_value = (ANSWER, [CHUNK], citations)
+    submit(app, "Generate answer")
+    assert any(element.value == ANSWER for element in app.markdown)
+    assert not any("Quoted citations" in expander.label for expander in app.expander)
+    assert len(app.expander) == 1
+
+
+def test_retrieval_mode_selector_defaults_and_caches_engine_per_mode(ui):
+    app, _engine, factory = ui
+    selector = app.sidebar.selectbox[0]
+    assert selector.label == "Retrieval mode"
+    assert selector.value == "vector"
+    assert list(selector.options) == ["vector", "hybrid"]
+    selector.set_value("hybrid").run()
+    submit(app, "Find sources")
+    factory.assert_called_once_with(persist_dir="chroma_db", retrieval="hybrid")
+    assert any("hybrid retrieval" in caption.value for caption in app.caption)
+    app.sidebar.selectbox[0].set_value("vector").run()
+    submit(app, "Find sources")
+    factory.assert_called_with(persist_dir="chroma_db", retrieval="vector")
+    assert factory.call_count == 2
+    app.sidebar.selectbox[0].set_value("hybrid").run()
+    submit(app, "Find sources")
+    assert factory.call_count == 2
+    submit(app, "Reload index")
+    submit(app, "Find sources")
+    assert factory.call_count == 3
+    factory.assert_called_with(persist_dir="chroma_db", retrieval="hybrid")
 
 
 def test_empty_question_does_not_load_engine(ui):
@@ -79,7 +125,7 @@ def test_missing_index_explains_how_to_ingest(ui):
 def test_failed_query_clears_previous_result(ui):
     app, engine, _ = ui
     submit(app, "Find sources")
-    engine.answer.side_effect = RuntimeError("Provider unavailable")
+    engine.answer_with_citations.side_effect = RuntimeError("Provider unavailable")
     submit(app, "Generate answer")
     assert app.error[0].value == "Query failed: Provider unavailable"
     assert not app.expander
@@ -90,7 +136,7 @@ def test_no_matches_is_visible_without_generation(ui):
     engine.retrieve.return_value = []
     submit(app, "Find sources")
     assert "No relevant documents found" in app.info[0].value
-    engine.answer.assert_not_called()
+    engine.answer_with_citations.assert_not_called()
 
 
 def test_reload_index_recreates_cached_engine(ui):

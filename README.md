@@ -43,9 +43,12 @@ python -m streamlit run app.py --server.address 127.0.0.1 --server.fileWatcherTy
 ```
 
 Open the local URL printed in the terminal. **Find sources** needs no provider key: inspect
-ranked chunks, source documents, sections, and cosine distances. Adjust the chunk count and
-distance cutoff in the sidebar. **Generate answer** uses the same `LLM_PROVIDER`, `LLM_MODEL`,
-and provider API-key environment variables as the CLI. Set them before starting Streamlit.
+ranked chunks, source documents, sections, and cosine distances. Choose the retrieval mode
+(`vector`, the default, or `hybrid`; see [hybrid retrieval](docs/guide.md#hybrid-retrieval-opt-in)),
+chunk count and distance cutoff in the sidebar. **Generate answer** uses the same `LLM_PROVIDER`,
+`LLM_MODEL`, and provider API-key environment variables as the CLI. Set them before starting
+Streamlit. With Claude, a **Quoted citations** expander under the answer lists the exact text each
+citation quotes; DeepSeek answers carry only the citations written in the answer text.
 Each question is independent; earlier questions are not sent as conversation history.
 
 To add documents, use **Add documents** in the sidebar: choose one or more `.md` files,
