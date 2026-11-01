@@ -1,3 +1,8 @@
+---
+policy_id: production-log-retention
+version: platform-2026
+effective_from: 2026-02-01
+---
 # Production Log Retention Policy
 
 Fictional document: Northwind Systems, its teams and services are invented.

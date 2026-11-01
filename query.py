@@ -21,11 +21,13 @@ import math
 import os
 import re
 from collections import Counter
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import chromadb
 from sentence_transformers import SentenceTransformer
 
+import policy
 from ingest import EMBED_MODEL
 
 # ── Defaults ───────────────────────────────────────────────────────────
@@ -239,7 +241,9 @@ def anthropic_content(query: str, chunks: list[dict]) -> list[dict]:
         {
             "type": "document",
             "source": {"type": "text", "media_type": "text/plain", "data": c["text"]},
-            "title": chunk_title(c),
+            # A superseded, expired, future or conflicting policy is labelled
+            # in the title so the model sees it (issue #78).
+            "title": chunk_title(c) + policy.note(c.get("policy")),
             "citations": {"enabled": True},
         }
         for c in chunks
@@ -257,6 +261,7 @@ def deepseek_messages(query: str, chunks: list[dict]) -> list[dict]:
     context = "\n\n---\n\n".join(
         f"[Chunk {i}] Source: {c['source']}"
         + (f", Section: {c['section']}" if c["section"] else "")
+        + policy.note(c.get("policy"))
         + f"\n{c['text']}"
         for i, c in enumerate(chunks, start=1)
     )
@@ -335,19 +340,44 @@ class RAGEngine:
         self.embedder = embedder if embedder is not None else SentenceTransformer(EMBED_MODEL)
 
     def retrieve(self, query: str, n_results: int = N_RESULTS,
-                 max_distance: float | None = MAX_DISTANCE) -> list[dict]:
+                 max_distance: float | None = MAX_DISTANCE,
+                 as_of: date | None = None) -> list[dict]:
         """Embed the query and retrieve the top-k matching chunks.
 
         Chunks with a cosine distance above max_distance (i.e. less similar)
         are dropped, unless they are within EXACT_TERM_MARGIN of it and contain
         an exact term from the query; pass None to keep all top-k.
+
+        Each chunk carries "policy": its document's policy status on as_of
+        (default: today, UTC). Applicability is not used to filter or rank:
+        superseded and conflicting guidance is labelled, not hidden.
         """
         query_embedding = self.embedder.encode([query]).tolist()[0]
         if self.retrieval == "hybrid":
             chunks = self._retrieve_hybrid(query, query_embedding, n_results, max_distance)
         else:
             chunks = self._retrieve_vector(query, query_embedding, n_results, max_distance)
-        return self._complete_sections(query_embedding, chunks)
+        chunks = self._complete_sections(query_embedding, chunks)
+        statuses = self.policy_statuses(as_of)
+        day = as_of or datetime.now(timezone.utc).date()
+        for chunk in chunks:
+            chunk["policy"] = (statuses or {}).get(chunk["source"]) or policy.unavailable(day)
+        return chunks
+
+    def policy_statuses(self, as_of: date | None = None) -> dict[str, dict] | None:
+        """Every indexed document's policy status on as_of, or None when the
+        index has no policy registry (built before issue #78)."""
+        as_of = as_of or datetime.now(timezone.utc).date()
+        key = (getattr(self, "collection_name", None), as_of)
+        cache = self.__dict__.setdefault("_policy_cache", {})
+        if key not in cache:
+            try:
+                manifest = json.loads((self.collection.metadata or {}).get("corpus_manifest", "null"))
+                registry = manifest.get("policies") if isinstance(manifest, dict) else None
+            except (TypeError, ValueError, AttributeError):
+                registry = None
+            cache[key] = None if registry is None else policy.applicability(registry, as_of)
+        return cache[key]
 
     def _retrieve_vector(self, query: str, query_embedding: list[float], n_results: int,
                          max_distance: float | None) -> list[dict]:

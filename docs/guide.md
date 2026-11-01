@@ -603,7 +603,7 @@ The 8 calls used 13,992 input and 2,973 output tokens (thinking included), about
 
 #### Limitations
 
-- **Supersession must be visible in the text.** The scenario passes partly because the title says SUPERSEDED, and the breadcrumb carries it into every chunk. A notice only in a body paragraph would sit in one chunk, and a retrieved step chunk would look current. No metadata marks a document as superseded or in force. [#78](https://github.com/redbarron23/rag-observability/issues/78) tracks that metadata and should reuse these fixtures and `document_facts`.
+- **Supersession needs metadata, not just text.** When this scenario was written it passed partly because v1's title says SUPERSEDED and the breadcrumb carries that into every chunk; a notice only in a body paragraph would leave step chunks looking current. Since [#78](https://github.com/redbarron23/rag-observability/issues/78) the runbook pair declares [policy front matter](#policy-metadata), so every v1 chunk reports `superseded` and is labelled in the prompt whatever its text says. Documents without front matter still depend on their text.
 - **Conflicts are detected by the model, not the system.** Nothing flags that two retrieved documents disagree. Retrieval only ensures that both reach the prompt, and the top-6 limit could drop one of them in a larger corpus.
 - **DeepSeek context isn't delimited.** The prompt-construction check proves that injected text stays after `Context:` in the user message, but chunk text is pasted in as is. A document could imitate a `[Chunk N] Source:` header or a `Question:` line. The Anthropic path keeps each chunk in its own `document` block. DeepSeek generation has not been run on these scenarios.
 - **The heuristics are wording-based.** The fabricated-target false failure above shows that the flag vocabulary can miss a correct disclosure. They can also pass a wrong answer: a sentence such as "The note claims the target is 99%, which is correct" counts as flagged. Read failing answers (`-v`, or `--include-answers` in the artifact) before you act on one.
@@ -690,6 +690,36 @@ Any change still builds a complete new collection — unchanged chunks are copie
 All files are re-embedded when you pass `--rebuild`, when the active index has no supported manifest, or when it was built with a different embedding model, `sentence-transformers` version, model revision, or `--chunk-size`; the ingest output says which. Upgrading `sentence-transformers` or the cached model therefore needs no manual `--rebuild`: the next `python ingest.py` re-embeds everything, and `--check` reports the index as stale until then. Revisions are compared only when both the manifest and the local cache know one, so a cleared model cache does not force a re-embed on its own.
 
 Indexes built before versions were recorded remain queryable, but their first ingest after upgrading re-embeds everything once, and `--check` reports them as stale. Their vectors cannot be shown to match the installed library, and a one-off re-embed of a local corpus is cheaper than silently mixing vectors from two library versions in one collection.
+
+### Policy metadata
+
+A document can declare which policy it states, so that superseded, future and conflicting guidance is visible instead of every indexed document looking equally current (issue #78). Put front matter at the very top of the Markdown file:
+
+```markdown
+---
+policy_id: orders-queue-backlog-runbook
+version: 2
+effective_from: 2026-04-10
+effective_until: 2027-04-09
+supersedes: [orders-queue-backlog-runbook@1]
+---
+# Orders Queue Backlog Runbook v2
+```
+
+Every field is optional, and files without front matter are `unversioned` and work as before. `version`, the dates and `supersedes` need a `policy_id` (lowercase letters, digits, `.`, `_`, `-`); dates are `YYYY-MM-DD`; `supersedes` lists `<policy_id>@<version>` references. Ingestion strips the front matter before chunking (so it never appears in retrieved text or changes embeddings), validates it, and stores a registry in the index manifest. Problems are printed as warnings and make that document `invalid`; the document is still indexed. Rejected: unknown keys (to catch typos), malformed or impossible dates, `effective_until` before `effective_from`, a reference not in `<policy_id>@<version>` form, a `policy_id@version` declared by two documents, a reference to a policy no indexed document declares, and a policy superseding itself.
+
+Applicability is decided **at query time** for the current UTC date, because an unchanged file can describe a policy that has since expired; source [freshness](#indexed-corpus-provenance-and-freshness) and applicability are separate questions. The statuses are listed in the [HTTP API docs](http-api.md#policy-applicability-contract-11). The rules:
+
+- **Only explicit supersession retires a policy.** A policy that is in effect, or has since expired, retires every policy its `supersedes` lists. A superseder that is still future-effective is only listed as `pending_superseded_by`, and the target stays `active` until that date. A superseded policy does not revive when its successor expires.
+- **Dates never decide authority.** Two policies in effect with the same `policy_id` and no supersession between them are both `conflict`, whichever started later. Circular supersession is also a conflict.
+- **Invalid documents** take no part in supersession or conflicts.
+- **Labels, not filters.** Retrieval returns every relevant chunk with its `policy` status. For generation, a chunk whose policy is superseded, future, expired, in conflict or invalid gets a short label after its title, e.g. `[policy orders-queue-backlog-runbook@1: superseded by orders-queue-backlog-runbook@2 as of 2026-11-01]`; active and unversioned documents are unlabelled.
+
+An index built before this feature has no registry: its chunks report `unavailable` until the next `python ingest.py`, which rebuilds the index from the stored embeddings without re-embedding anything.
+
+The bundled sample corpus has no front matter, so all of its documents are `unversioned`. [`fixtures/policy_metadata/`](../fixtures/policy_metadata/) has one fictional document per case (active with a pending successor, future, expired, invalid, legacy), checked offline by `tests/test_policy.py`, and the [adversarial scenarios](#adversarial-scenarios) now declare front matter for the conflicting retention policies (`conflict`) and the runbook pair (v1 `superseded`, v2 `active`), which `adversarial_evals.py` checks offline. With the labels in the prompt, the opt-in generation run on 1 November 2026 passed all four scenarios in both retrieval modes (8 calls, about $0.06).
+
+Not covered: other formats than Markdown front matter, effective times finer than a day, an `as_of` request parameter (the server always evaluates today), and automatic detection of conflicts between documents that don't declare a shared `policy_id`; the model is still the only check there.
 
 ### Pruning old collections
 

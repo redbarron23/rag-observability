@@ -1,3 +1,9 @@
+---
+policy_id: orders-queue-backlog-runbook
+version: 2
+effective_from: 2026-04-10
+supersedes: [orders-queue-backlog-runbook@1]
+---
 # Orders Queue Backlog Runbook v2
 
 Fictional document: Northwind Systems, its teams and services are invented.

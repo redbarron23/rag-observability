@@ -18,10 +18,10 @@
     "schema": "schemas/error-response.schema.json",
     "headers": {
       "Content-Type": "application/json; charset=utf-8",
-      "X-RAG-Contract-Version": "1.0.0"
+      "X-RAG-Contract-Version": "1.1.0"
     },
     "body": {
-      "contract_version": "1.0.0",
+      "contract_version": "1.1.0",
       "error": {
         "code": "index_unavailable",
         "message": "No index found. Run python ingest.py, then retry."

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "GET /health 200 response",
   "description": "Index identity and freshness. 'degraded' means the index answers but its sources are stale or could not be compared. A missing index is a 503 index_unavailable error, not a health body.",
-  "x-contract-version": "1.0.0",
+  "x-contract-version": "1.1.0",
   "type": "object",
   "required": [
     "contract_version",

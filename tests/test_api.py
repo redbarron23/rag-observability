@@ -102,7 +102,7 @@ def test_retrieve_returns_hits_with_provenance_and_no_generation(index, serve, m
                              "retrieval": "vector"}
     hit = data["hits"][0]
     assert set(hit) == {"rank", "chunk_id", "text", "source", "file", "section", "distance",
-                        "exact_term_match", "expanded_from"}
+                        "exact_term_match", "expanded_from", "policy"}
     assert hit["expanded_from"] is None
     assert hit["source"] == "reference/tagging.md" and hit["file"] == "tagging.md"
     assert hit["section"] == "Required Tags" and hit["chunk_id"] == "reference/tagging.md#0"

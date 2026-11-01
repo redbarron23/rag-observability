@@ -1,3 +1,8 @@
+---
+policy_id: production-log-retention
+version: security-2026
+effective_from: 2026-03-01
+---
 # Security Logging Standard
 
 Fictional document: Northwind Systems, its teams and services are invented.

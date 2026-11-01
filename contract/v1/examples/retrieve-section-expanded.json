@@ -18,10 +18,10 @@
     "schema": "schemas/retrieve-response.schema.json",
     "headers": {
       "Content-Type": "application/json; charset=utf-8",
-      "X-RAG-Contract-Version": "1.0.0"
+      "X-RAG-Contract-Version": "1.1.0"
     },
     "body": {
-      "contract_version": "1.0.0",
+      "contract_version": "1.1.0",
       "query": {
         "question": "How do I investigate consumer lag?",
         "k": 1,
@@ -38,7 +38,20 @@
           "section": "Investigation",
           "distance": 0.0,
           "exact_term_match": false,
-          "expanded_from": null
+          "expanded_from": null,
+          "policy": {
+            "status": "unversioned",
+            "as_of": "2026-11-01",
+            "policy_id": null,
+            "version": null,
+            "effective_from": null,
+            "effective_until": null,
+            "supersedes": [],
+            "superseded_by": [],
+            "pending_superseded_by": [],
+            "conflicts_with": [],
+            "errors": []
+          }
         },
         {
           "rank": 2,
@@ -49,19 +62,32 @@
           "section": "Investigation",
           "distance": 1.0,
           "exact_term_match": false,
-          "expanded_from": "runbooks/queue-backlog.md#0"
+          "expanded_from": "runbooks/queue-backlog.md#0",
+          "policy": {
+            "status": "unversioned",
+            "as_of": "2026-11-01",
+            "policy_id": null,
+            "version": null,
+            "effective_from": null,
+            "effective_until": null,
+            "supersedes": [],
+            "superseded_by": [],
+            "pending_superseded_by": [],
+            "conflicts_with": [],
+            "errors": []
+          }
         }
       ],
       "corpus": {
         "provenance": "available",
-        "corpus_sha256": "6cae9c94af4600609f084ee2ccd0b60a3d8efb1a7f01310c0f0d7be8fdd583b9",
+        "corpus_sha256": "ff7a397b2b7b46a151762452a06854a641efafda2c2d95fed03319a41d9957df",
         "ingested_at": "2026-01-15T09:30:00+00:00",
         "embedding_model": "all-MiniLM-L6-v2",
         "embedding_revision": "0000000000000000000000000000000000000000",
         "chunk_size": 500,
-        "document_count": 2,
+        "document_count": 5,
         "collection": "observability-docs-00000000000000000000000000000000",
-        "chunk_count": 4
+        "chunk_count": 7
       },
       "freshness": {
         "status": "current",
