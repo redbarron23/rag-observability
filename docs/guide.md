@@ -196,7 +196,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()`, `answer()` and `answer_with_citations()` |
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `api.py` | Retrieval-only local HTTP API (`POST /retrieve`, `GET /health`); no provider key. See [HTTP API](http-api.md) |
-| `evals.py` | 25 answerable and 5 unanswerable cases plus 8 held-out: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
+| `evals.py` | 27 answerable and 6 unanswerable cases plus 8 held-out: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
 | `eval_artifact.py` | Builds the versioned JSON run artifact that `evals.py --output` writes ([comparing eval runs](#comparing-eval-runs)) |
 | `tests/` | Unit tests for loading, chunking, provider validation and eval fact matching (`pytest`) |
 | `.github/workflows/ci.yml` | CI: lint (`ruff check`), unit tests, ingest sample corpus, retrieval evals |
@@ -271,7 +271,7 @@ The model is downloaded once on first run and cached locally (that's the `HF_TOK
 
 `RAGEngine.retrieve()` in [`query.py`](../query.py) embeds the question with the same model used for ingestion, runs a cosine-similarity query against ChromaDB for the top `--n-results` chunks (default 6), and returns each chunk's text with its `source`, `section` and `distance`.
 
-Chunks with a cosine distance above `--max-distance` (default `0.6`; 0 = identical) are dropped; if nothing survives, the answer is "No relevant documents found." and no LLM call is made. The default comes from the eval questions: on the sample corpus the answerable questions find a relevant chunk within 0.57 and the unanswerable ones have nothing closer than 0.65, apart from tagging-standard context for the unknown-ownership question (see [Dimension 1](#dimension-1-source-attribution)). Pass `--max-distance 2` to keep all top-k (cosine distance tops out at 2), and re-measure the cutoff on your own documents.
+Chunks with a cosine distance above `--max-distance` (default `0.6`; 0 = identical) are dropped; if nothing survives, the answer is "No relevant documents found." and no LLM call is made. The default comes from the eval questions: on the sample corpus the answerable questions find a relevant chunk within 0.57 and the unanswerable ones have nothing within 0.6, apart from tagging-standard context for the unknown-ownership question (see [Dimension 1](#dimension-1-source-attribution)). Pass `--max-distance 2` to keep all top-k (cosine distance tops out at 2), and re-measure the cutoff on your own documents.
 
 ### Hybrid retrieval (opt-in)
 
@@ -281,10 +281,10 @@ Retrieval evals on the bundled corpus (top-6, 0.6 cutoff):
 
 | Mode | Passed | Section recall @1 | @3 | @6 |
 |---|---|---|---|---|
-| `vector` (default) | 30/30 | 19/29 | 27/29 | 29/29 |
-| `hybrid` | 30/30 | 19/29 | 27/29 | 29/29 |
+| `vector` (default) | 33/33 | 21/32 | 30/32 | 32/32 |
+| `hybrid` | 33/33 | 21/32 | 29/32 | 32/32 |
 
-These numbers include the obs-agent vocabulary cases added with the tagging-standard alignment (issue #56), after which the two modes score the same at every cutoff. On the earlier 21-case set, hybrid moved the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranked lower and all four unanswerable questions were still rejected. Vector stays the default because no case changes from fail to pass, and with Claude Sonnet 5.5 the full generation evals passed 21/21 in both modes on that set. The two `short-*` cases pass in both modes because of the [exact-term margin](#exact-term-margin); without it they fail in both.
+These numbers include the obs-agent vocabulary cases added with the tagging-standard alignment (issue #56) and the cost-runbook cases ([obs-agent#91](https://github.com/redbarron23/obs-agent/issues/91)). The modes differ only at rank 3: hybrid ranks the cost smoothing plan's *Commitment tiers* section fourth for `conflict-commitment-tier-after-spike`. On the earlier 21-case set, hybrid moved the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranked lower and all four unanswerable questions were still rejected. Vector stays the default because no case changes from fail to pass, and with Claude Sonnet 5.5 the full generation evals passed 21/21 in both modes on that set. The two `short-*` cases pass in both modes because of the [exact-term margin](#exact-term-margin); without it they fail in both.
 
 #### Exact-term margin
 
@@ -293,7 +293,7 @@ Short questions about a named thing embed poorly. For "What does the Ops Agent d
 - identifiers: tokens with `_`, `-`, `.` or `%`, or that mix letters and digits (`last_updated`, `cost-centre`, `0.47%`, `p95`), at least three characters long;
 - multi-word names: runs of two or more capitalised words after the question's first word (`Ops Agent`, `Basic Logs`).
 
-Single capitalised words such as `GCP` don't count; they appear throughout the corpus. BM25 scores were not usable as the signal: on 37 chunks, generic words like "month" score as high as "ops". The margin applies in both retrieval modes and only to chunks already in the ranked results. On the bundled corpus the closest chunk to each of the four off-topic unanswerable questions is at 0.652 or more and contains none of its exact terms, so all four are still rejected. (The unknown-ownership question retrieves tagging-standard context within the cutoff; see [Dimension 1](#dimension-1-source-attribution).) A question that names a real term but asks something the documents don't cover (for example the Ops Agent's price) can still retrieve that chunk; the model then has to decline.
+Single capitalised words such as `GCP` don't count; they appear throughout the corpus. BM25 scores were not usable as the signal: on 37 chunks, generic words like "month" score as high as "ops". The margin applies in both retrieval modes and only to chunks already in the ranked results. On the bundled corpus the closest chunk to each of the four off-topic unanswerable questions is at 0.643 or more and contains none of its exact terms, so all four are still rejected. (The unknown-ownership question retrieves tagging-standard context within the cutoff; see [Dimension 1](#dimension-1-source-attribution).) A question that names a real term but asks something the documents don't cover (for example the Ops Agent's price) can still retrieve that chunk; the model then has to decline.
 
 #### Split sections
 
@@ -345,7 +345,7 @@ The user message repeats the "only this context, cite each claim" instruction, t
 
 ## Evaluation strategy
 
-`evals.py` tests 25 answerable queries against known ground truth in the sample corpus, plus 5 questions the corpus can't answer and 8 [held-out questions](#held-out-questions). Answerable cases check **three dimensions:**
+`evals.py` tests 27 answerable queries against known ground truth in the sample corpus, plus 6 questions the corpus can't answer and 8 [held-out questions](#held-out-questions). Answerable cases check **three dimensions:**
 
 Provider errors fail the case and are reported separately. Dimension scores count only evaluated cases, with skipped cases shown as unevaluated; a provider failure never counts as a quality pass. For example, if every provider call fails, sources are reported as `0/0 (10 unevaluated)` and the command exits nonzero.
 
@@ -385,7 +385,7 @@ Dimension 1 checks what was retrieved; this checks what the answer cites. On the
 
 ### Unanswerable questions
 
-The system prompt tells the model to say so when the context can't answer. Five questions the corpus doesn't answer (an on-call rota, vendor pricing, a Kubernetes version, an outage root cause, and the owning team of a specific subscription) check this. In `--with-llm` mode they run **without** the distance cutoff, so the model sees the nearest chunks and has to decline on its own. `decline_problems()` requires two things:
+The system prompt tells the model to say so when the context can't answer. Six questions the corpus doesn't answer (an on-call rota, vendor pricing, a Kubernetes version, an outage root cause, the owning team of a specific subscription, and a project's logging spend on a given day) check this. In `--with-llm` mode they run **without** the distance cutoff, so the model sees the nearest chunks and has to decline on its own. `decline_problems()` requires two things:
 
 1. The answer declines: `is_decline()` finds a phrase like "does not contain" or "not in the provided context".
 2. No sentence adds a name or number that appears in neither the question nor the indexed corpus (including the retrieved chunks). Negated sentences ("None of them mention AKS") and pointers elsewhere ("Check your paging tool") are skipped, because real declines often describe what the documents do cover.
@@ -440,10 +440,12 @@ The retrieval and fact checks catch both failure modes (the citation check adds 
 | `obs-agent-not-evaluated` | Requirements obs-agent does not evaluate | `reference/tagging-standard.md` | tier, service, resource-level, enforcement |
 | `obs-agent-tag-levels` | Subscription/project vs resource tags | `reference/tagging-standard.md` | not inherited |
 | `label-completeness-vs-coverage` | Label completeness vs telemetry coverage | `reference/tagging-standard.md` | neither substitutes |
+| `runbook-gcp-logging-investigation` | Investigating a GCP logging cost spike | `runbooks/logging-cost-spike.md` | bytes_ingested, exclusion |
+| `conflict-commitment-tier-after-spike` | Commitment tier after a spike (conflicting guidance) | `runbooks/logging-cost-spike.md`, `programme/COST_SMOOTHING.md` | two consecutive months, three consecutive, FinOps |
 
 The `exact-*` cases use figures, product names and tag names, where keyword matching should help most (issue #8). The `short-*` cases are short questions about a named thing whose best chunk sits just past the distance cutoff (issue #58).
 
-Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-vendor-pricing`, `unanswerable-k8s-version`, `unanswerable-outage-root-cause`, `unanswerable-subscription-owner`.
+Unanswerable (expected to decline): `unanswerable-oncall-rota`, `unanswerable-vendor-pricing`, `unanswerable-k8s-version`, `unanswerable-outage-root-cause`, `unanswerable-subscription-owner`, `unanswerable-logging-spend-amount`.
 
 #### obs-agent integration cases
 
@@ -463,13 +465,25 @@ The `obs-agent-*` and `label-completeness-vs-coverage` cases are the cross-repo 
 
 Keep these section headings stable: obs-agent cites the source and section.
 
+#### obs-agent cost-runbook cases
+
+`runbooks/logging-cost-spike.md` is a fictional investigation and remediation runbook for logging-cost spikes, used by the obs-agent cost chat ([obs-agent#91](https://github.com/redbarron23/obs-agent/issues/91)). obs-agent takes amounts, rankings and dates from its billing tools and cites the runbook only for suggested steps. Its stable headings are `Detection and triage`, `Investigation: Azure Log Analytics`, `Investigation: GCP Cloud Logging`, `Likely causes (hypotheses)`, `Remediation options`, `Verifying savings`, `Commitment tiers` and `Escalation`.
+
+Its `Commitment tiers` section deliberately disagrees with `programme/COST_SMOOTHING.md` § `Commitment tiers` (three stable months and a median-sized tier, against two months and a fixed 100 GB per day) and says so. The conflict case requires both sections, so an answer can disclose the disagreement rather than pick one; `possible_conflicts()` in obs-agent flags the shared heading.
+
+| Question | Supporting section(s) |
+|---|---|
+| What does the runbook say to investigate for a GCP logging cost spike? | `Investigation: GCP Cloud Logging` |
+| When should we buy a commitment tier after a logging cost spike? | `Commitment tiers` in both documents (conflicting guidance) |
+| How much did project-bravo spend on logging on 23 April? | None: amounts come from billing data, not the corpus |
+
 ### Latest results
 
 | Mode | Cases | Passed |
 |---|---|---|
-| Retrieval (document attribution + supporting sections + cutoff), no API key | 30 | 30 (100%) |
-| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default) | 30 | 30 (100%) |
-| Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid` | 30 | 30 (100%) |
+| Retrieval (document attribution + supporting sections + cutoff), no API key | 33 | 33 (100%) |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default), before the cost-runbook cases | 30 | 30 (100%) |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid`, before the cost-runbook cases | 30 | 30 (100%) |
 | Held-out retrieval, both modes (not counted in the exit code) | 8 | 8 (100%) |
 | Held-out full generation with `claude-sonnet-5-5`, both modes | 8 | 8 (100%) |
 | Full, generation with DeepSeek, before the `exact-*` and `short-*` cases | 14 | 14 (100%) |
@@ -482,7 +496,7 @@ An earlier run the same day, before the obs-agent cases and the stricter checks,
 
 Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
-Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 30 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution and fact evidence are 25/25 answerable cases each; supporting-section recall is 19/29 at rank 1, 27/29 at rank 3, and 29/29 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the five unanswerable cases, which are scored by rejection instead. DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added, nor with the stricter answer checks.
+Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 33 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution and fact evidence are 25/25 answerable cases each; supporting-section recall is 19/29 at rank 1, 27/29 at rank 3, and 29/29 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the five unanswerable cases, which are scored by rejection instead. DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added, nor with the stricter answer checks.
 
 ### Scheduled LLM evals
 
