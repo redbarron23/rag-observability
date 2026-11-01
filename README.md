@@ -132,7 +132,10 @@ python evals.py
 ```
 
 CI runs Ruff linting, unit tests, ingestion, and retrieval evals. Generation evals (`python evals.py --with-llm`)
-are opt-in and call the configured provider.
+are opt-in and call the configured provider. A separate workflow runs them against Claude weekly and on
+manual dispatch, in both retrieval modes (about $0.12 per mode per run), and never on pull requests. It needs
+an `ANTHROPIC_API_KEY` repository secret (`gh secret set ANTHROPIC_API_KEY`); without it the run is skipped.
+See [scheduled LLM evals](docs/guide.md#scheduled-llm-evals).
 
 Follow the [open-source roadmap](https://github.com/users/redbarron23/projects/2).
 
