@@ -8,7 +8,8 @@ questions the corpus can't answer.  Runs in two modes:
   Mode 1 — Retrieval-only (default):
       Checks that the correct documents and supporting sections appear in
       the top-N retrieved chunks, and that nothing survives the distance cutoff
-      for unanswerable questions.  No LLM API key required.
+      for unanswerable questions (beyond allowed related context that never
+      mentions the subject).  No LLM API key required.
 
   Mode 2 — Full (--with-llm):
       Also asks the configured LLM to generate an answer and checks that the
@@ -160,6 +161,69 @@ EVALS = [
         "expected_sections": [("data-first-approach.md", "Freshness check")],
         "expected_facts": ["6 hours"],
     },
+    # Cross-repo questions from the obs-agent label review (issue #56): the
+    # shared team/env/cost-centre vocabulary and what obs-agent leaves unchecked.
+    {
+        "id": "obs-agent-suspect-env",
+        "question": "Why is this environment label suspect, and what does our standard require?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [
+            ("reference/tagging-standard.md", "Allowed values"),
+            ("reference/tagging-standard.md", "Environment vocabulary"),
+        ],
+        "expected_facts": ["prod", "staging", "dev", "sandbox"],
+    },
+    {
+        "id": "obs-agent-env-aliases",
+        "question": "Which canonical environment do the legacy values prd and uat map to?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Environment vocabulary")],
+        "expected_facts": ["prod", "staging"],
+    },
+    {
+        "id": "obs-agent-owner-meaning",
+        "question": "Does the owner tag name a person or a team?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Owner")],
+        "expected_facts": ["team", "not a person"],
+    },
+    {
+        "id": "obs-agent-team-cost-centre",
+        "question": "Which cost centre belongs to the data-platform team, and what legacy spellings of that team are accepted?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Team vocabulary")],
+        "expected_facts": ["CC-2002", "dp"],
+    },
+    {
+        "id": "obs-agent-field-mapping",
+        "question": "How do the policy tag keys map to the obs-agent team, env and cost_center fields?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Field mapping for obs-agent")],
+        "expected_facts": ["owner", "environment", "cost-centre"],
+    },
+    {
+        "id": "obs-agent-not-evaluated",
+        "question": "Which tagging policy requirements does obs-agent not evaluate?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [
+            ("reference/tagging-standard.md", "Requirements obs-agent does not evaluate"),
+        ],
+        "expected_facts": ["tier", "service", "resource-level", "enforcement"],
+    },
+    {
+        "id": "obs-agent-tag-levels",
+        "question": "Do tags go on each resource or only on the subscription or project?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Tag levels")],
+        "expected_facts": ["not inherited"],
+    },
+    {
+        "id": "label-completeness-vs-coverage",
+        "question": "Is label completeness the same as metrics, logs and traces coverage?",
+        "expected_sources": ["reference/tagging-standard.md"],
+        "expected_sections": [("reference/tagging-standard.md", "Label completeness and coverage")],
+        "expected_facts": ["neither substitutes"],
+    },
 ]
 
 # Questions on observability-adjacent topics that the sample corpus doesn't
@@ -180,6 +244,17 @@ UNANSWERABLE_EVALS = [
     {
         "id": "unanswerable-outage-root-cause",
         "question": "What was the root cause of last month's checkout outage?",
+    },
+    # The tagging standard lists the allowed owner values but never says which
+    # team owns a given subscription, so the owner must stay unknown (issue
+    # #56). Policy chunks are related and may be retrieved; the retrieval check
+    # passes if only allowed_sources survive the cutoff and none of them
+    # mentions the resource (absent_terms). --with-llm still requires a decline.
+    {
+        "id": "unanswerable-subscription-owner",
+        "question": "Which team owns the Azure subscription az-demo-007?",
+        "allowed_sources": ["reference/tagging-standard.md"],
+        "absent_terms": ["az-demo-007"],
     },
 ]
 
@@ -258,6 +333,18 @@ def citation_problems(answer: str, retrieved_sources: set[str],
     return problems
 
 
+def unanswerable_problems(chunks: list[dict], ev: dict) -> list[str]:
+    """Why the chunks kept for an unanswerable question could support an
+    answer; empty if they can't."""
+    allowed = set(ev.get("allowed_sources", []))
+    problems = [f"kept {c['source']}" for c in chunks if c["source"] not in allowed]
+    problems += [f"{c['source']} mentions {term!r}"
+                 for c in chunks if c["source"] in allowed
+                 for term in ev.get("absent_terms", [])
+                 if contains_fact(c.get("text", ""), term)]
+    return problems
+
+
 RETRIEVE_N = 6  # number of chunks to retrieve for document and section checks
 
 
@@ -321,10 +408,12 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
     print("Supporting-section recall: " + ", ".join(
         f"@{cutoff} {hits}/{section_total}" for cutoff, hits in section_hits.items()))
 
-    # Unanswerable questions: nothing should survive the distance cutoff
+    # Unanswerable questions: nothing should survive the distance cutoff,
+    # except related context from allowed_sources that holds no evidence
+    # about the subject (none of absent_terms).
     for ev in UNANSWERABLE_EVALS:
         chunks = engine.retrieve(ev["question"], n_results=RETRIEVE_N)
-        ok = not chunks
+        ok = not unanswerable_problems(chunks, ev)
 
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {ev['id']}")
@@ -332,7 +421,8 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool) -> tuple[int, int]:
         if not ok or verbose:
             print(f"       Q: {ev['question']}")
             for c in chunks:
-                print(f"       Kept: {c['source']} (dist {c['distance']:.3f})")
+                allowed = " (allowed)" if c["source"] in ev.get("allowed_sources", []) else ""
+                print(f"       Kept: {c['source']} (dist {c['distance']:.3f}){allowed}")
 
         if ok:
             passed += 1
