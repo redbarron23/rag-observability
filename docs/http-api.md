@@ -41,6 +41,11 @@ The cutoff behaves exactly as in `query.py`, including the exact-term margin: a 
 beyond `max_distance` is kept when it contains an exact term from the question, and is flagged with
 `"exact_term_match": true`.
 
+When a hit belongs to a section that ingestion split across two or three chunks, the section's
+other chunks are appended after the ranked hits with `"expanded_from"` set to the `chunk_id` of the
+hit that pulled them in (it is `null` on ranked hits). They carry their own distance, which may be
+beyond `max_distance`, and are not counted in `k`, so a response can hold more than `k` hits.
+
 Example:
 
 ```bash
@@ -66,7 +71,8 @@ curl -s http://127.0.0.1:8765/retrieve \
       "file": "tagging-standard.md",
       "section": "Required tags",
       "distance": 0.2972,
-      "exact_term_match": false
+      "exact_term_match": false,
+      "expanded_from": null
     },
     {
       "rank": 2,
@@ -76,7 +82,8 @@ curl -s http://127.0.0.1:8765/retrieve \
       "file": "tagging-standard.md",
       "section": "Enforcement",
       "distance": 0.416,
-      "exact_term_match": false
+      "exact_term_match": false,
+      "expanded_from": null
     }
   ],
   "corpus": {

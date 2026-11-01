@@ -577,6 +577,14 @@ def corpus_text(engine) -> str:
 RETRIEVE_N = 6  # number of chunks to retrieve for document and section checks
 
 
+def missing_evidence(chunks: list[dict], facts: list[str]) -> list[str]:
+    """Expected facts that appear in none of the retrieved chunks' text.
+
+    Every expected fact is a literal string from the source section, so a
+    model can only state it if retrieval delivered it."""
+    return [f for f in facts if not any(contains_fact(c.get("text", ""), f) for c in chunks)]
+
+
 def supporting_section_ranks(chunks: list[dict],
                              expected_sections: list[tuple[str, str]]) -> list[int | None]:
     """First 1-based rank for each required source/section, or None if absent."""
@@ -598,6 +606,7 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
     source_passed = 0
     section_hits = dict.fromkeys((1, 3, RETRIEVE_N), 0)
     section_total = 0
+    evidence_failures = 0
 
     print(f"Retrieval evals (documents and supporting sections in top-{RETRIEVE_N})")
     print("=" * 60)
@@ -617,11 +626,18 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
             section_hits[cutoff] += sum(rank is not None and rank <= cutoff for rank in ranks)
         sections_ok = all(rank is not None and rank <= RETRIEVE_N for rank in ranks)
         first_rank = min((rank for rank in ranks if rank is not None), default=None)
-        ok = sources_ok and sections_ok
+        # Any chunk labelled with the right section satisfies the section
+        # check, so also require the facts themselves in the retrieved text
+        # (issue #72: a split section can return the wrong half).
+        unsupported = missing_evidence(chunks, ev.get("expected_facts", []))
+        evidence_ok = not unsupported
+        evidence_failures += not evidence_ok
+        ok = sources_ok and sections_ok and evidence_ok
 
         status = "PASS" if ok else "FAIL"
         print(f"[{status}] {ev['id']}  sources={'ok' if sources_ok else 'FAIL'} "
               f"sections={'ok' if sections_ok else 'FAIL'} "
+              f"evidence={'ok' if evidence_ok else 'FAIL'} "
               f"first relevant rank={first_rank if first_rank is not None else 'missing'}")
 
         if not ok or verbose:
@@ -631,6 +647,8 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
                 print(f"       Missing sources: {missing}")
             for (source, section), rank in zip(ev["expected_sections"], ranks, strict=True):
                 print(f"       {source} / {section}: rank {rank if rank is not None else 'missing'}")
+            if unsupported:
+                print(f"       Facts not in retrieved text: {unsupported}")
 
         if ok:
             passed += 1
@@ -638,6 +656,8 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
             failed += 1
 
     print(f"\nDocument attribution: {source_passed}/{len(answerable)} cases")
+    print(f"Fact evidence in retrieved text: {len(answerable) - evidence_failures}/"
+          f"{len(answerable)} cases")
     print("Supporting-section recall: " + ", ".join(
         f"@{cutoff} {hits}/{section_total}" for cutoff, hits in section_hits.items()))
 

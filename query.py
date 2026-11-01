@@ -43,6 +43,11 @@ MAX_DISTANCE = 0.6
 # at ~0.64 and the cutoff drops it. A chunk up to this much beyond the cutoff
 # is kept when it contains an exact term from the question (see exact_terms).
 EXACT_TERM_MARGIN = 0.1
+# A section longer than the chunk size is split across chunks, and a retrieved
+# chunk can be the half without the answer (issue #72: a table and the
+# paragraph after it). When a kept chunk belongs to a section of at most this
+# many chunks, the section's other chunks are appended to the results.
+SECTION_MAX_CHUNKS = 3
 
 # "vector" ranks chunks by embedding similarity alone. "hybrid" fuses that
 # ranking with a BM25 keyword ranking (reciprocal rank fusion), which helps
@@ -102,6 +107,20 @@ def within_cutoff(distance: float | None, max_distance: float | None,
         return True
     return (distance <= max_distance + EXACT_TERM_MARGIN
             and bool(matched_exact_terms(terms, text)))
+
+
+def chunk_index(chunk_id: str) -> int:
+    """Position of a "<source>#<index>" chunk within its document."""
+    try:
+        return int(chunk_id.rsplit("#", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def cosine_distance(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    norm = (math.sqrt(sum(x * x for x in a)) or 1.0) * (math.sqrt(sum(y * y for y in b)) or 1.0)
+    return 1 - dot / norm
 
 
 def bm25_scores(query: str, documents: list[list[str]]) -> list[float]:
@@ -234,8 +253,13 @@ class RAGEngine:
         """
         query_embedding = self.embedder.encode([query]).tolist()[0]
         if self.retrieval == "hybrid":
-            return self._retrieve_hybrid(query, query_embedding, n_results, max_distance)
+            chunks = self._retrieve_hybrid(query, query_embedding, n_results, max_distance)
+        else:
+            chunks = self._retrieve_vector(query, query_embedding, n_results, max_distance)
+        return self._complete_sections(query_embedding, chunks)
 
+    def _retrieve_vector(self, query: str, query_embedding: list[float], n_results: int,
+                         max_distance: float | None) -> list[dict]:
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=n_results,
@@ -255,6 +279,46 @@ class RAGEngine:
         terms = exact_terms(query)
         return [c for c in chunks
                 if within_cutoff(c["distance"], max_distance, terms, c["text"])]
+
+    def _complete_sections(self, query_embedding: list[float],
+                           chunks: list[dict]) -> list[dict]:
+        """Append the other chunks of each split section a kept chunk belongs to.
+
+        Added chunks follow every ranked chunk, in document order, so ranks and
+        n_results are unchanged. Each carries its own cosine distance (it may be
+        beyond the cutoff: it is kept because its section was) and
+        "expanded_from", the ID of the ranked chunk that pulled it in. Chunks
+        without a section and sections longer than SECTION_MAX_CHUNKS are left
+        as they are.
+        """
+        have = {c["id"] for c in chunks}
+        added: list[dict] = []
+        for chunk in list(chunks):
+            if not chunk.get("section"):
+                continue
+            siblings = self.collection.get(
+                where={"$and": [{"source": chunk["source"]}, {"section": chunk["section"]}]},
+                include=["documents", "metadatas", "embeddings"],
+            )
+            if not 1 < len(siblings["ids"]) <= SECTION_MAX_CHUNKS:
+                continue
+            rows = sorted(zip(siblings["ids"], siblings["documents"], siblings["metadatas"],
+                              siblings["embeddings"], strict=True),
+                          key=lambda row: chunk_index(row[0]))
+            for chunk_id, text, meta, embedding in rows:
+                if chunk_id in have:
+                    continue
+                have.add(chunk_id)
+                added.append({
+                    "id": chunk_id,
+                    "text": text,
+                    "source": meta.get("source", "unknown"),
+                    "file": meta.get("file", ""),
+                    "section": meta.get("section", ""),
+                    "distance": cosine_distance(query_embedding, list(map(float, embedding))),
+                    "expanded_from": chunk["id"],
+                })
+        return chunks + added
 
     def _load_corpus(self) -> dict:
         """Every chunk with its embedding and BM25 tokens, cached per engine."""

@@ -294,6 +294,10 @@ Short questions about a named thing embed poorly. For "What does the Ops Agent d
 
 Single capitalised words such as `GCP` don't count; they appear throughout the corpus. BM25 scores were not usable as the signal: on 37 chunks, generic words like "month" score as high as "ops". The margin applies in both retrieval modes and only to chunks already in the ranked results. On the bundled corpus the closest chunk to each of the four off-topic unanswerable questions is at 0.652 or more and contains none of its exact terms, so all four are still rejected. (The unknown-ownership question retrieves tagging-standard context within the cutoff; see [Dimension 1](#dimension-1-source-attribution).) A question that names a real term but asks something the documents don't cover (for example the Ops Agent's price) can still retrieve that chunk; the model then has to decline.
 
+#### Split sections
+
+Ingestion never splits a paragraph, but a section longer than the chunk size becomes several chunks. A retrieved chunk can then be the half without the answer: the tagging standard's *Team vocabulary* table (distance 0.624 for "Which cost centre belongs to the data-platform team…") sits in one chunk and the paragraph after it (0.478) in another, and vector top-6 returned only the paragraph. So when a kept chunk belongs to a section of two or three chunks (`SECTION_MAX_CHUNKS`), `retrieve()` appends that section's other chunks after all ranked chunks, in document order. Each appended chunk keeps its own distance, which may be beyond the cutoff, and carries `expanded_from`, the ID of the ranked chunk that pulled it in. Ranks and `n_results` are unchanged, nothing is added when nothing survives the cutoff, and longer sections are left alone. On the bundled corpus five sections, all in the tagging standard, are split; appending their other halves added about 6% to generation input tokens.
+
 Chunk IDs are `<source>#<index>` (e.g. `reference/coverage-targets.md#2`), so editing one document doesn't renumber the chunks of every other document.
 
 ---
@@ -356,7 +360,9 @@ Retrieval-only evals also require the actual supporting sections. Each answerabl
 
 Supporting-section recall at ranks 1, 3 and 6 is the number of required sections found within that cutoff divided by the total required sections across answerable cases. A question needing two sections contributes two to the denominator. Any chunk with the matching source and section can satisfy a requirement; duplicate chunks count only once, at their earliest rank. Matching a section name in another document does not count.
 
-An answerable retrieval case passes only when document attribution passes and every required section appears in the top six. Lower cutoffs are diagnostic, not additional pass thresholds. Each case reports its first relevant rank (1-based, after the distance cutoff); `--verbose` and failed cases show every required section's rank or `missing`. If nothing is relevant, the first relevant rank is `missing`.
+Because any chunk with the right section label satisfies a section requirement, a case also checks **fact evidence**: every expected fact must appear in the text of a retrieved chunk (`missing_evidence()`). Expected facts are literal strings from the source section, so a model can only state them if retrieval delivered them. This catches a split section that returned the wrong half, offline and without an API key.
+
+An answerable retrieval case passes only when document attribution passes, every required section appears in the top six, and every expected fact is in the retrieved text. Lower cutoffs are diagnostic, not additional pass thresholds. Each case reports its first relevant rank (1-based, after the distance cutoff); `--verbose` and failed cases show every required section's rank or `missing`. If nothing is relevant, the first relevant rank is `missing`.
 
 Retrieval for an unanswerable question passes when the distance cutoff drops every chunk. A case may list `allowed_sources` and `absent_terms`: related context from those sources may survive, provided none of it mentions an absent term. The unknown-ownership case uses this because the tagging standard is relevant to "Which team owns az-demo-007?" but never names the owner of any subscription.
 
@@ -461,19 +467,21 @@ Keep these section headings stable: obs-agent cites the source and section.
 | Mode | Cases | Passed |
 |---|---|---|
 | Retrieval (document attribution + supporting sections + cutoff), no API key | 30 | 30 (100%) |
-| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default) | 30 | 29 (97%), see below |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default) | 30 | 30 (100%) |
 | Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid` | 30 | 30 (100%) |
 | Held-out retrieval, both modes (not counted in the exit code) | 8 | 8 (100%) |
 | Held-out full generation with `claude-sonnet-5-5`, both modes | 8 | 8 (100%) |
 | Full, generation with DeepSeek, before the `exact-*` and `short-*` cases | 14 | 14 (100%) |
 
-Sonnet 5.5 run on 1 November 2026 with the stricter answer checks from issue #29 (fact pairs, cited sections, decline followed by a guess), `python evals.py --with-llm`, top-6, 0.6 cutoff with the exact-term margin. Hybrid passes every dimension: sources 25/25, facts 25/25, citations 25/25 (Claude's native citations, checked from the structured citation data) and declines 5/5. Vector fails one case, `obs-agent-team-cost-centre`: the *Team vocabulary* section is split into a table chunk and a paragraph chunk, vector retrieval returns only the paragraph, and the model correctly says the cost-centre table isn't in its excerpt. Retrieval passes because any chunk from the section satisfies the section check. This is tracked in [#72](https://github.com/redbarron23/rag-observability/issues/72); hybrid's exact-term margin keeps the table chunk. No answer was rejected by the new relation, section or decline checks. Each mode made 38 calls (30 main plus 8 held-out) of about 2,000 input and 260 output tokens on average (at most 1,233 output tokens), roughly $0.25 per mode at list price.
+Sonnet 5.5 run on 1 November 2026 with the stricter answer checks from issue #29 (fact pairs, cited sections, decline followed by a guess), `python evals.py --with-llm`, top-6, 0.6 cutoff with the exact-term margin. Both modes pass every dimension: sources 25/25, facts 25/25, citations 25/25 (Claude's native citations, checked from the structured citation data) and declines 5/5, and the held-out set passes 8/8. Each mode made 38 calls (30 main plus 8 held-out) of about 2,100 input and 280 output tokens on average (at most 1,211 output tokens), roughly $0.27 per mode at list price.
+
+Earlier the same day, vector failed `obs-agent-team-cost-centre`: the *Team vocabulary* table and its paragraph were separate chunks, vector retrieval returned only the paragraph, and the model correctly said the table wasn't in its excerpt. The retrieval check had passed because any chunk from the section counted. [Split-section completion](#split-sections) fixed the cause and the [fact evidence](#dimension-1-source-attribution) check now catches that shape offline ([#72](https://github.com/redbarron23/rag-observability/issues/72)).
 
 An earlier run the same day, before the obs-agent cases and the stricter checks, passed 21/21 in both modes.
 
 Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
-Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 30 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution is 25/25 answerable cases; supporting-section recall is 19/29 at rank 1, 27/29 at rank 3, and 29/29 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the five unanswerable cases, which are scored by rejection instead. DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added, nor with the stricter answer checks.
+Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 30 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution and fact evidence are 25/25 answerable cases each; supporting-section recall is 19/29 at rank 1, 27/29 at rank 3, and 29/29 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the five unanswerable cases, which are scored by rejection instead. DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added, nor with the stricter answer checks.
 
 ### Scheduled LLM evals
 
