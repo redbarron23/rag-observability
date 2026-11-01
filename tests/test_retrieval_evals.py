@@ -75,6 +75,8 @@ def test_missing_supporting_section_fails_cli(monkeypatch):
         "expected_sources": ["doc.md"], "expected_sections": [("doc.md", "Target")],
     }])
     monkeypatch.setattr(evals, "UNANSWERABLE_EVALS", [])
+    monkeypatch.setattr(evals, "HELDOUT_EVALS", [])
+    monkeypatch.setattr(evals, "HELDOUT_UNANSWERABLE_EVALS", [])
     engine = Mock()
     engine.retrieve.return_value = [{"source": "doc.md", "section": "Introduction"}]
     monkeypatch.setattr(evals, "RAGEngine", lambda **kwargs: engine)

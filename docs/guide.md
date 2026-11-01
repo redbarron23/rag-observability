@@ -196,7 +196,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()`, `answer()` and `answer_with_citations()` |
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `api.py` | Retrieval-only local HTTP API (`POST /retrieve`, `GET /health`); no provider key. See [HTTP API](http-api.md) |
-| `evals.py` | 25 answerable and 5 unanswerable cases: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
+| `evals.py` | 25 answerable and 5 unanswerable cases plus 8 held-out: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
 | `tests/` | Unit tests for loading, chunking, provider validation and eval fact matching (`pytest`) |
 | `.github/workflows/ci.yml` | CI: lint (`ruff check`), unit tests, ingest sample corpus, retrieval evals |
 | `.github/workflows/llm-evals.yml` | Weekly and manual full evals (`--with-llm`) in both retrieval modes; needs the `ANTHROPIC_API_KEY` secret ([scheduled LLM evals](#scheduled-llm-evals)) |
@@ -340,7 +340,7 @@ The user message repeats the "only this context, cite each claim" instruction, t
 
 ## Evaluation strategy
 
-`evals.py` tests 25 answerable queries against known ground truth in the sample corpus, plus 5 questions the corpus can't answer. Answerable cases check **three dimensions:**
+`evals.py` tests 25 answerable queries against known ground truth in the sample corpus, plus 5 questions the corpus can't answer and 8 [held-out questions](#held-out-questions). Answerable cases check **three dimensions:**
 
 Provider errors fail the case and are reported separately. Dimension scores count only evaluated cases, with skipped cases shown as unevaluated; a provider failure never counts as a quality pass. For example, if every provider call fails, sources are reported as `0/0 (10 unevaluated)` and the command exits nonzero.
 
@@ -368,13 +368,24 @@ Does the generated answer contain the expected factual content? Every expected f
 
 `contains_fact()` matches case-insensitively and must start at a word boundary, so "4 months" doesn't match "14 months". Short generic facts like "100%" can still match by coincidence, so prefer specific ones.
 
+Presence alone accepts an answer that has every number but pairs them wrongly: "Tier 1 is 100% within 4 months and 85% within 9 months" contains all four facts. A case can therefore list `expected_relations`, pairs that must be stated together. `relation_problems()` accepts a pair `(first, second)` when, within one sentence, `first` is followed by `second` with no other fact from the case's pairs in between. "85% within 4 months and 100% within 9 months" passes; the swapped answer fails both pairs. The check is order-sensitive, so a correct answer phrased the other way round ("within 4 months, 85%") also fails: it prefers a false failure to a false pass. The Tier 1 and Tier 2 target cases use it.
+
 ### Dimension 3: Citations
 
-Dimension 1 checks what was retrieved; this checks what the answer cites. On the Anthropic path, `citation_problems()` uses the structured citations returned by the API (the source of each cited document). For DeepSeek, it parses the `(source: X.md, section '…')` citations out of the answer text. Either way, it fails the case if there are no citations, if one names a document that wasn't retrieved, or if none names the expected source. For parsed citations, the directory may be dropped (`coverage-targets.md` matches `reference/coverage-targets.md`). Cited sections aren't checked.
+Dimension 1 checks what was retrieved; this checks what the answer cites. On the Anthropic path, `citation_problems()` uses the structured citations returned by the API (the source of each cited document). For DeepSeek, it parses the `(source: X.md, section '…')` citations out of the answer text. Either way, it fails the case if there are no citations, if one names a document that wasn't retrieved, or if none names the expected source. For parsed citations, the directory may be dropped (`coverage-targets.md` matches `reference/coverage-targets.md`).
+
+`section_problems()` also checks cited **sections**. Every `section '…'` in a written citation, and the section of every structured citation, must match a retrieved chunk from the same document. Before comparing, `normalise_section()` keeps only the last heading of a breadcrumb (`Coverage Targets > Tier 1` becomes `Tier 1`; `›` and `»` also work), drops surrounding straight or curly quotes and trailing punctuation, collapses whitespace and ignores case. Nothing else is fuzzy: a section that exists in another document, or a near-miss spelling, fails. A citation that names only a document is not section-checked. On the Anthropic path the inline markers are generated from chunk metadata, so this mainly guards the DeepSeek path and any future change to marker generation.
 
 ### Unanswerable questions
 
-The system prompt tells the model to say so when the context can't answer. Five questions the corpus doesn't answer (an on-call rota, vendor pricing, a Kubernetes version, an outage root cause, and the owning team of a specific subscription) check this. In `--with-llm` mode they run **without** the distance cutoff, so the model sees the nearest chunks and has to decline on its own; `is_decline()` looks for phrases like "does not contain" or "not in the provided context". It doesn't detect an answer that declines and then guesses anyway.
+The system prompt tells the model to say so when the context can't answer. Five questions the corpus doesn't answer (an on-call rota, vendor pricing, a Kubernetes version, an outage root cause, and the owning team of a specific subscription) check this. In `--with-llm` mode they run **without** the distance cutoff, so the model sees the nearest chunks and has to decline on its own. `decline_problems()` requires two things:
+
+1. The answer declines: `is_decline()` finds a phrase like "does not contain" or "not in the provided context".
+2. No sentence adds a name or number that appears in neither the question nor the indexed corpus (including the retrieved chunks). Negated sentences ("None of them mention AKS") and pointers elsewhere ("Check your paging tool") are skipped, because real declines often describe what the documents do cover.
+
+This catches "The context does not contain a rota. Alice is on call this week.", which `is_decline()` alone accepted. It does not catch a guess made only of ordinary words ("the team lead is on call") or of terms that happen to appear in the corpus, and a correct decline that introduces an unrelated proper noun outside a negated or advice sentence would fail.
+
+These answer checks are offline heuristics aimed at specific failure shapes. Passing them is not proof that an answer is factually correct; read the `--verbose` answers when results change.
 
 ### Why both checks?
 
@@ -388,6 +399,10 @@ The retrieval and fact checks catch both failure modes (the citation check adds 
 | ✅ Correct source | ❌ Hallucinated | **FAIL** — fact error |
 | ❌ Wrong source | ✅ Correct facts | **FAIL** — attribution error |
 | ❌ Wrong source | ❌ Wrong facts | **FAIL** — both errors |
+
+### Held-out questions
+
+`HELDOUT_EVALS` (six answerable) and `HELDOUT_UNANSWERABLE_EVALS` (two) were written on 1 November 2026, after the distance cutoff and exact-term margin were set, about sections no other case targets: Tier 2 targets, alert noise, error propagation, commitment tiers, cost-centre format and the data-first principle, plus a PagerDuty escalation policy and a Grafana version. They are not used to tune retrieval. Both modes report them on separate `Held-out retrieval` and `Held-out full` lines, and they don't affect the exit code: a held-out failure is a generalisation signal to record, not a reason to retune the cutoff. Adding a question to this set after looking at its distances would defeat its purpose.
 
 ### The eval cases
 
@@ -446,15 +461,19 @@ Keep these section headings stable: obs-agent cites the source and section.
 | Mode | Cases | Passed |
 |---|---|---|
 | Retrieval (document attribution + supporting sections + cutoff), no API key | 30 | 30 (100%) |
-| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default), before the obs-agent cases | 21 | 21 (100%) |
-| Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid`, before the obs-agent cases | 21 | 21 (100%) |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default) | 30 | 29 (97%), see below |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid` | 30 | 30 (100%) |
+| Held-out retrieval, both modes (not counted in the exit code) | 8 | 8 (100%) |
+| Held-out full generation with `claude-sonnet-5-5`, both modes | 8 | 8 (100%) |
 | Full, generation with DeepSeek, before the `exact-*` and `short-*` cases | 14 | 14 (100%) |
 
-Sonnet 5.5 run on 1 November 2026 (`python evals.py --with-llm`, top-6, 0.6 cutoff with the exact-term margin). Both modes pass every dimension: sources 17/17, facts 17/17, citations 17/17 (Claude's native citations, checked from the structured citation data rather than the answer text) and declines 4/4. Each run made 21 calls of about 1,750 input and 200 output tokens on average (at most 442 output tokens), roughly $0.12 per run at list price. The full evals don't separate the two retrieval modes on this corpus; the difference shows only in section ranking (see [hybrid retrieval](#hybrid-retrieval-opt-in)).
+Sonnet 5.5 run on 1 November 2026 with the stricter answer checks from issue #29 (fact pairs, cited sections, decline followed by a guess), `python evals.py --with-llm`, top-6, 0.6 cutoff with the exact-term margin. Hybrid passes every dimension: sources 25/25, facts 25/25, citations 25/25 (Claude's native citations, checked from the structured citation data) and declines 5/5. Vector fails one case, `obs-agent-team-cost-centre`: the *Team vocabulary* section is split into a table chunk and a paragraph chunk, vector retrieval returns only the paragraph, and the model correctly says the cost-centre table isn't in its excerpt. Retrieval passes because any chunk from the section satisfies the section check. This is tracked in [#72](https://github.com/redbarron23/rag-observability/issues/72); hybrid's exact-term margin keeps the table chunk. No answer was rejected by the new relation, section or decline checks. Each mode made 38 calls (30 main plus 8 held-out) of about 2,000 input and 260 output tokens on average (at most 1,233 output tokens), roughly $0.25 per mode at list price.
+
+An earlier run the same day, before the obs-agent cases and the stricter checks, passed 21/21 in both modes.
 
 Both modes use the same top-6 retrieval. Earlier, generation used top-4 and missed the 'Dependency mapping' chunk (ranked 6th) for `tracing-use-cases`, so the answer lacked that use case. Raising the default to 6 fixed it. Retrieval evals run in CI.
 
-Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 30 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution is 25/25 answerable cases; supporting-section recall is 19/29 at rank 1, 27/29 at rank 3, and 29/29 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the five unanswerable cases, which are scored by rejection instead. Generation (Sonnet 5.5 or DeepSeek) has not been rerun for the obs-agent cases added with issue #56, and DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added.
+Retrieval-only evals run in CI and exit non-zero on any failure, including missing supporting sections. All 30 pass locally (top-6 vector retrieval, 0.6 cutoff with the exact-term margin). Document attribution is 25/25 answerable cases; supporting-section recall is 19/29 at rank 1, 27/29 at rank 3, and 29/29 at rank 6 (see [hybrid retrieval](#hybrid-retrieval-opt-in) for the hybrid numbers). These section metrics exclude the five unanswerable cases, which are scored by rejection instead. DeepSeek generation has not been rerun since the `exact-*` and `short-*` cases were added, nor with the stricter answer checks.
 
 ### Scheduled LLM evals
 

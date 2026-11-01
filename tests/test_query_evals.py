@@ -108,7 +108,8 @@ def test_full_eval_summary_separates_errors_from_evaluated_checks(
             if question in error_questions:
                 raise RuntimeError("provider unavailable")
             if question == "answerable-pass":
-                return "85% (source: doc.md, section 'Target').", [{"source": "doc.md"}]
+                return ("85% (source: doc.md, section 'Target').",
+                        [{"source": "doc.md", "section": "Target"}])
             if question == "decline-pass":
                 return "No relevant documents found.", []
             return "An unsupported guess.", []
