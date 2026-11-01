@@ -82,7 +82,10 @@ def test_manifest_matches_indexed_bytes_and_is_stable_across_rebuilds(index):
     assert manifest["sources"] == {"old.md": sha256((data / "old.md").read_bytes()).hexdigest()}
     assert datetime.fromisoformat(manifest["ingested_at"]).utcoffset().total_seconds() == 0
     assert manifest["embedding_model"] == ingest.EMBED_MODEL
-    assert manifest["embedding_revision"] is None
+    assert manifest["embedding_revision"] == ingest.embedding_versions()["embedding_revision"]
+    assert manifest["sentence_transformers_version"] == ingest.embedding_versions()[
+        "sentence_transformers_version"]
+    assert manifest["previous_collection"] is None
     assert "Original runbook content" not in json.dumps(manifest)
     assert ingest.check_freshness(str(persist))["status"] == "current"
     ingest.ingest_documents(str(data), str(persist))
@@ -280,3 +283,219 @@ def test_rebuild_cli_flag(monkeypatch):
     monkeypatch.setattr("sys.argv", ["ingest.py", "--rebuild"])
     ingest.main()
     runner.assert_called_once_with("data", "chroma_db", 500, rebuild=True)
+
+
+# ── Embedding stack versions (#62) ───────────────────────────────
+
+
+def _installed(monkeypatch, st_version="6.1.0", revision="aaaa"):
+    monkeypatch.setattr(ingest, "embedding_versions", lambda: {
+        "sentence_transformers_version": st_version, "embedding_revision": revision})
+
+
+@pytest.fixture
+def versioned_corpus(corpus, monkeypatch):
+    """The two-document corpus, re-indexed under a known embedding stack."""
+    data, persist, embedded, loader = corpus
+    _installed(monkeypatch)
+    ingest.ingest_documents(str(data), str(persist), rebuild=True)
+    embedded.clear()
+    loader.reset_mock()
+    return data, persist, embedded, loader
+
+
+@pytest.mark.parametrize("installed", [{"st_version": "6.2.0"}, {"revision": "bbbb"}])
+def test_embedding_version_change_reembeds_everything(versioned_corpus, monkeypatch, installed):
+    data, persist, embedded, _ = versioned_corpus
+    _installed(monkeypatch, **installed)
+    result = ingest.check_freshness(str(persist))
+    assert result["status"] == "stale"
+    assert result["added"] == result["modified"] == result["deleted"] == []
+    assert len(result["embedding_mismatch"]) == 1
+    ingest.ingest_documents(str(data), str(persist))
+    assert len(embedded) == 2
+    manifest = ingest._active_collection(str(persist))[1]
+    assert manifest["sentence_transformers_version"] == installed.get("st_version", "6.1.0")
+    assert manifest["embedding_revision"] == installed.get("revision", "aaaa")
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+
+
+def test_unknown_cached_revision_does_not_force_reembed(versioned_corpus, monkeypatch):
+    """Without a resolvable local snapshot only the package version is compared."""
+    data, persist, embedded, loader = versioned_corpus
+    _installed(monkeypatch, revision=None)
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+    ingest.ingest_documents(str(data), str(persist))
+    loader.assert_not_called()
+    assert embedded == []
+    (data / "gamma.md").write_text("# Gamma\n\n" + "Gamma runbook content. " * 3)
+    ingest.ingest_documents(str(data), str(persist))
+    assert len(embedded) == 1
+    assert ingest._active_collection(str(persist))[1]["embedding_revision"] == "aaaa"
+
+
+def _legacy_index(persist):
+    """Make active an index written before versions and history were recorded."""
+    manifest = {
+        "schema_version": 1, "ingested_at": "2026-01-01T00:00:00+00:00",
+        "data_dir": "/nowhere", "embedding_model": ingest.EMBED_MODEL,
+        "embedding_revision": None, "chunk_size": 500, "sources": {"alpha.md": "0" * 64},
+        "corpus_sha256": "1" * 64,
+    }
+    name = "observability-docs-" + "0" * 32
+    client = chromadb.PersistentClient(path=str(persist))
+    collection = client.create_collection(
+        name, metadata={"hnsw:space": "cosine", "corpus_manifest": json.dumps(manifest)})
+    collection.add(ids=["alpha.md#0"], embeddings=[[1.0, 0.0]], documents=["Alpha legacy runbook"],
+                   metadatas=[{"source": "alpha.md", "file": "alpha.md", "section": "Alpha",
+                               "source_sha256": "0" * 64}])
+    (persist / "active-collection").write_text(name)
+    return name
+
+
+def test_legacy_manifest_stays_queryable_and_next_ingest_reembeds(index, monkeypatch):
+    data, persist, _ = index
+    legacy = _legacy_index(persist)
+    reader = RAGEngine(str(persist))
+    assert reader.collection.name == legacy
+    assert [c["source"] for c in reader.retrieve("runbook")] == ["alpha.md"]
+    result = ingest.check_freshness(str(persist), str(data))
+    assert result["status"] == "stale"
+    assert "not recorded" in result["embedding_mismatch"][0]
+    encode = Mock(return_value=np.array([[1.0, 0.0]]))
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer",
+                        Mock(return_value=Mock(encode=encode)))
+    ingest.ingest_documents(str(data), str(persist))
+    encode.assert_called_once()
+    manifest = ingest._active_collection(str(persist))[1]
+    assert manifest["sentence_transformers_version"]
+    assert manifest["previous_collection"] == legacy
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+
+
+# ── Pruning superseded collections (#61) ─────────────────────────
+
+
+def _names(persist):
+    return {c.name for c in chromadb.PersistentClient(path=str(persist)).list_collections()}
+
+
+def _revise(data, persist, times):
+    """Ingest `times` edits, returning the active collection after each."""
+    actives = []
+    for i in range(times):
+        (data / "old.md").write_text(f"# Old\n\nRevision {i} of the runbook content. " * 3)
+        ingest.ingest_documents(str(data), str(persist))
+        actives.append((persist / "active-collection").read_text())
+    return actives
+
+
+def test_prune_keeps_active_and_previous_by_default(index, capsys):
+    data, persist, _ = index
+    first = (persist / "active-collection").read_text()
+    *_, previous, active = [first, *_revise(data, persist, 3)]
+    assert "run `python ingest.py --prune`" in capsys.readouterr().out
+    result = ingest.prune_collections(str(persist))
+    assert result["active"] == active
+    assert result["kept"] == [active, previous]
+    assert len(result["removed"]) == 2 and first in result["removed"]
+    assert _names(persist) == {active, previous}
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+    assert RAGEngine(str(persist)).retrieve("runbook")
+    # Rolling back to the kept previous collection works.
+    (persist / "active-collection").write_text(previous)
+    assert RAGEngine(str(persist)).collection.name == previous
+    assert ingest.prune_collections(str(persist))["removed"] == []
+
+
+def test_prune_keep_is_configurable_and_never_removes_active(index):
+    data, persist, _ = index
+    actives = _revise(data, persist, 3)
+    assert ingest.prune_collections(str(persist), keep=3)["kept"] == actives[::-1]
+    with pytest.raises(ValueError):
+        ingest.prune_collections(str(persist), keep=0)
+    # After a rollback, the pointer, not recency, decides what is active.
+    (persist / "active-collection").write_text(actives[0])
+    result = ingest.prune_collections(str(persist), keep=1)
+    assert _names(persist) == {actives[0]}
+    assert result["removed"] == sorted(actives[1:])
+    assert RAGEngine(str(persist)).retrieve("runbook")
+
+
+def test_prune_removes_incomplete_build_and_keeps_previous(index, monkeypatch):
+    data, persist, _ = index
+    first = (persist / "active-collection").read_text()
+    active = _revise(data, persist, 1)[0]
+    (data / "old.md").write_text("# Old\n\n" + "Failed revision content. " * 3)
+    monkeypatch.setattr(Collection, "count", lambda self: 0)
+    with pytest.raises(RuntimeError):
+        ingest.ingest_documents(str(data), str(persist))
+    monkeypatch.undo()
+    assert len(_names(persist)) == 3
+    result = ingest.prune_collections(str(persist))
+    assert _names(persist) == {active, first}
+    assert len(result["removed"]) == 1
+
+
+def test_prune_dry_run_and_unmanaged_collections(index):
+    data, persist, _ = index
+    _revise(data, persist, 2)
+    chromadb.PersistentClient(path=str(persist)).create_collection("someone-elses-data")
+    before = _names(persist)
+    result = ingest.prune_collections(str(persist), dry_run=True)
+    assert result["removed"] == [] and len(result["would_remove"]) == 1
+    assert _names(persist) == before
+    ingest.prune_collections(str(persist), keep=1)
+    assert "someone-elses-data" in _names(persist)
+
+
+def _segment_dirs(persist):
+    return {p.name for p in persist.iterdir() if p.is_dir()}
+
+
+def test_prune_removes_orphaned_vector_files_only(index):
+    data, persist, _ = index
+    _revise(data, persist, 2)
+    before = _segment_dirs(persist)
+    unrelated = persist / "00000000-0000-0000-0000-000000000000"
+    unrelated.mkdir()
+    (unrelated / "notes.txt").write_text("not an index")
+    result = ingest.prune_collections(str(persist), keep=1)
+    assert result["segment_dirs_removed"] and result["bytes_freed"] > 0
+    assert set(result["segment_dirs_removed"]) <= before
+    assert unrelated.exists()
+    assert ingest.prune_collections(str(persist), keep=1)["segment_dirs_removed"] == []
+    assert RAGEngine(str(persist)).retrieve("runbook")
+    assert ingest.check_freshness(str(persist))["status"] == "current"
+
+
+def test_prune_without_history_keeps_newest_others(index):
+    data, persist, _ = index
+    first = (persist / "active-collection").read_text()
+    newest = _revise(data, persist, 1)[0]
+    legacy = _legacy_index(persist)  # active, with no recorded predecessor
+    result = ingest.prune_collections(str(persist))
+    assert result["kept"] == [legacy, newest]
+    assert result["removed"] == [first]
+
+
+def test_prune_refuses_when_active_collection_is_missing(index):
+    data, persist, _ = index
+    _revise(data, persist, 1)
+    before = _names(persist)
+    (persist / "active-collection").write_text("observability-docs-" + "f" * 32)
+    with pytest.raises(ValueError, match="not found"):
+        ingest.prune_collections(str(persist))
+    assert _names(persist) == before
+
+
+def test_prune_cli_reports_removed(index, monkeypatch, capsys):
+    data, persist, _ = index
+    _revise(data, persist, 2)
+    monkeypatch.setattr("sentence_transformers.SentenceTransformer",
+                        Mock(side_effect=AssertionError))
+    monkeypatch.setattr("sys.argv", ["ingest.py", "--prune", "--keep", "1",
+                                     "--persist-dir", str(persist)])
+    capsys.readouterr()
+    ingest.main()
+    assert len(json.loads(capsys.readouterr().out)["removed"]) == 2
