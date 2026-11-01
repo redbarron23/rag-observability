@@ -195,6 +195,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `ingest.py` | One-shot ingestion pipeline: load → chunk → embed → store |
 | `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()`, `answer()` and `answer_with_citations()` |
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
+| `api.py` | Retrieval-only local HTTP API (`POST /retrieve`, `GET /health`); no provider key. See [HTTP API](http-api.md) |
 | `evals.py` | 25 answerable and 5 unanswerable cases: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
 | `tests/` | Unit tests for loading, chunking, provider validation and eval fact matching (`pytest`) |
 | `.github/workflows/ci.yml` | CI: lint (`ruff check`), unit tests, ingest sample corpus, retrieval evals |
@@ -210,6 +211,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `LLM_MODEL` | Model name (provider-specific) | `claude-sonnet-5-5` or `deepseek-chat` |
 | `DEEPSEEK_API_KEY` | API key for DeepSeek | required for `deepseek` |
 | `ANTHROPIC_API_KEY` | API key for Claude | required for `anthropic` |
+| `RAG_API_KEY` | Bearer token required by `api.py` when set; needed to bind beyond loopback | unset (no auth, loopback only) |
 
 Copy `.env.example` as a starting point.
 
