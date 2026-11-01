@@ -438,6 +438,10 @@ python ingest.py --data-dir data --chunk-size 600
 # Re-embed every document instead of reusing unchanged embeddings
 python ingest.py --rebuild
 
+# Delete superseded index collections, keeping the active one and the previous one
+python ingest.py --prune --dry-run
+python ingest.py --prune
+
 # Single query (default provider)
 python query.py "What are the top monitoring gaps identified?"
 
@@ -472,7 +476,7 @@ python evals.py --with-llm
 
 ### Indexed corpus provenance and freshness
 
-Each newly built collection stores a versioned JSON `corpus_manifest` in its Chroma metadata: UTC ingestion time, original absolute source directory, SHA-256 hashes of loaded Markdown files, a combined corpus hash, embedding-model identifier, and chunk size. Chunk metadata also includes its source hash. Hashes use original file bytes; the combined hash covers the sorted source-path/hash mapping. The embedding revision is explicitly `null` because ingestion does not pin or resolve a model revision. The manifest contains no document text or provider credentials, but does contain local paths.
+Each newly built collection stores a versioned JSON `corpus_manifest` in its Chroma metadata: UTC ingestion time, original absolute source directory, SHA-256 hashes of loaded Markdown files, a combined corpus hash, embedding-model identifier, installed `sentence-transformers` version, model revision, chunk size, and the name of the collection it replaced. Chunk metadata also includes its source hash. Hashes use original file bytes; the combined hash covers the sorted source-path/hash mapping. The model revision is the Hugging Face snapshot (commit hash) found in the local model cache, resolved offline without loading the model; it is `null` when it cannot be resolved, for example before the model is first downloaded. The manifest contains no document text or provider credentials, but does contain local paths.
 
 `python query.py --verbose "your question"` prints the indexed timestamp, corpus hash, and embedding model before the answer, including when no relevant chunks match. Existing readers retain provenance for their loaded collection after another process rebuilds the index; reload to use the replacement. Indexes created without a manifest remain queryable and report provenance as unavailable until re-ingested.
 
@@ -485,7 +489,7 @@ python ingest.py --check --persist-dir /path/to/index
 python ingest.py --check --persist-dir /path/to/index --data-dir /new/path/to/docs
 ```
 
-The JSON result reports `current`, `stale` (with added, modified, and deleted relative paths), or `unavailable` (with a reason). Exit codes are **0**, **1**, and **2**, respectively. By default the check uses the directory recorded at ingestion, regardless of the current working directory. Missing directories, unreadable files/directories, and missing provenance are unavailable rather than evidence of freshness. Newly added stubs shorter than 50 trimmed characters and non-Markdown files are excluded, matching ingestion; shortening an indexed document is reported as a modification. A successful rebuild removes documents that no longer qualify.
+The JSON result reports `current`, `stale` (with added, modified, and deleted relative paths, or an `embedding_mismatch` explaining why stored vectors no longer match the installed embedding stack), or `unavailable` (with a reason). The result also shows the recorded and `installed` sentence-transformers version and model revision. Exit codes are **0**, **1**, and **2**, respectively. By default the check uses the directory recorded at ingestion, regardless of the current working directory. Missing directories, unreadable files/directories, and missing provenance are unavailable rather than evidence of freshness. Newly added stubs shorter than 50 trimmed characters and non-Markdown files are excluded, matching ingestion; shortening an indexed document is reported as a modification. A successful rebuild removes documents that no longer qualify.
 
 This is an explicit local snapshot check; queries do not automatically check freshness. Avoid editing sources during ingestion or the check. Remote synchronization is outside this feature.
 
@@ -495,7 +499,33 @@ This is an explicit local snapshot check; queries do not automatically check fre
 
 Any change still builds a complete new collection — unchanged chunks are copied with their stored embeddings — and verifies its chunk count before the `active-collection` pointer switches, so a failed update leaves the previous index active exactly as a full rebuild does.
 
-All files are re-embedded when you pass `--rebuild`, when the active index has no supported manifest, or when it was built with a different embedding model or `--chunk-size`. Use `--rebuild` after changing the embedding model version installed locally, since the manifest records the model name but not its revision.
+All files are re-embedded when you pass `--rebuild`, when the active index has no supported manifest, or when it was built with a different embedding model, `sentence-transformers` version, model revision, or `--chunk-size`; the ingest output says which. Upgrading `sentence-transformers` or the cached model therefore needs no manual `--rebuild`: the next `python ingest.py` re-embeds everything, and `--check` reports the index as stale until then. Revisions are compared only when both the manifest and the local cache know one, so a cleared model cache does not force a re-embed on its own.
+
+Indexes built before versions were recorded remain queryable, but their first ingest after upgrading re-embeds everything once, and `--check` reports them as stale. Their vectors cannot be shown to match the installed library, and a one-off re-embed of a local corpus is cheaper than silently mixing vectors from two library versions in one collection.
+
+### Pruning old collections
+
+Every changed ingest adds a collection, and failed builds leave incomplete ones, so an index directory grows until you prune it. Pruning is explicit; ingestion never deletes collections, and after a switch it prints a reminder when collections beyond the previous one remain.
+
+```bash
+python ingest.py --prune --dry-run              # report what would be removed
+python ingest.py --prune                        # keep the active and the previous collection
+python ingest.py --prune --keep 1               # keep only the active collection
+python ingest.py --prune --persist-dir /path/to/index
+```
+
+- The collection named in `active-collection` (or the legacy `observability-docs` collection when there is no pointer) is always kept; `--keep` counts it and must be at least 1. If the pointer names a collection that does not exist, nothing is removed.
+- The default `--keep 2` also keeps the collection the active one replaced, followed back through each manifest. Where that history is missing (collections built before it was recorded, or after a rollback), the newest remaining collections fill the slots, so a prune keeps `--keep` collections whenever that many exist.
+- Only collections named by `ingest.py` are considered; other collections in the same directory are untouched.
+- Chroma 1.5 deletes a collection's rows but leaves its vector-index directory on disk, so prune also removes UUID-named directories that Chroma's segment table no longer references and that contain only HNSW index files. The JSON result lists removed collections and directories and the bytes freed from those directories. Pages freed inside `chroma.sqlite3` are reused by later ingests; `chroma vacuum --path chroma_db` shrinks the file itself.
+
+To roll back, write a kept collection's name into the pointer, then reload readers (**Reload index** in the UI):
+
+```bash
+printf %s observability-docs-<id> > chroma_db/active-collection
+```
+
+Prune while no ingestion is running against the same index directory. A reader (CLI session or UI) still using a removed collection fails until reloaded; the default keeps the previous collection so readers that loaded before the latest ingest keep working.
 
 ### Add documents in the web interface
 
@@ -510,7 +540,7 @@ Uploads are excluded from Git. An identical file uploaded again reuses its saved
 
 If indexing fails, saved documents remain available for a retry; the UI reports the failure instead of claiming they are searchable. Ingestion builds a separate collection and verifies its chunk count before atomically replacing the `active-collection` pointer in the index directory. A build, write, or switch failure leaves the previous index active. A successful rebuild excludes deleted source documents. Existing readers keep their previous collection until reloaded; the UI reloads after a successful upload. Indexes created before this pointer was introduced remain readable.
 
-Previous and incomplete collections are retained, so rebuilds use additional disk space. Do not delete collections while readers may still use them. Run only one ingestion process per index directory; this local workflow does not coordinate concurrent writers. The switch protects against failed operations, but does not guarantee recovery from power loss. Uploads rebuild from `data/`; if you previously indexed another source directory into the selected index, its documents must also be present in `data/` to be retained. The interface is for a local user, not concurrent document administration.
+Previous and incomplete collections are retained until you prune them (see [pruning old collections](#pruning-old-collections)). Run only one ingestion process per index directory; this local workflow does not coordinate concurrent writers. The switch protects against failed operations, but does not guarantee recovery from power loss. Uploads rebuild from `data/`; if you previously indexed another source directory into the selected index, its documents must also be present in `data/` to be retained. The interface is for a local user, not concurrent document administration.
 
 ### Add documents from the command line
 

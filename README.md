@@ -61,9 +61,12 @@ for command-line ingestion, document structure, and rebuild limitations.
 
 Re-running `python ingest.py` embeds only added or changed files, drops deleted ones, and
 does nothing when sources are unchanged; `python ingest.py --rebuild` re-embeds everything.
-See [incremental ingestion](docs/guide.md#incremental-ingestion).
+Upgrading `sentence-transformers` or the cached model triggers a full re-embed on the next ingest
+automatically. See [incremental ingestion](docs/guide.md#incremental-ingestion).
+`python ingest.py --prune` deletes superseded index collections, keeping the active and previous
+ones for rollback. See [pruning old collections](docs/guide.md#pruning-old-collections).
 After re-ingesting documents, click **Reload index** to reload the cached engine.
-Use `python ingest.py --check` to detect changed local source documents; verbose CLI queries
+Use `python ingest.py --check` to detect changed local source documents or an embedding-version mismatch; verbose CLI queries
 show the indexed timestamp and corpus hash. See [corpus provenance](docs/guide.md#indexed-corpus-provenance-and-freshness).
 The launch command disables file watching to avoid inspecting the model libraries; restart
 the app after editing its Python code.

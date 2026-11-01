@@ -4,20 +4,26 @@
 Usage
 -----
     python ingest.py [--data-dir data] [--persist-dir chroma_db] [--chunk-size 500] [--rebuild]
+    python ingest.py --check                         # are sources and embedding stack current?
+    python ingest.py --prune [--keep 2] [--dry-run]  # delete superseded collections
 
 This reads all .md files under data-dir, splits them into chunks, embeds
 each chunk, and stores them in a local Chroma collection. Files whose
 content hash matches the active index reuse their stored embeddings, so only
-added or changed files are embedded; --rebuild re-embeds everything.
+added or changed files are embedded; --rebuild re-embeds everything, as does a
+change of embedding model, sentence-transformers version, model revision or
+chunk size.
 """
 
 import argparse
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from hashlib import sha256
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +31,56 @@ import chromadb
 from chromadb.errors import NotFoundError
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
+COLLECTION_PREFIX = "observability-docs"
+LEGACY_COLLECTION = COLLECTION_PREFIX  # indexes created before the active-collection pointer
+_MANAGED_NAME = re.compile(rf"{re.escape(COLLECTION_PREFIX)}(-[0-9a-f]{{32}})?")
+
+
+def embedding_versions() -> dict:
+    """Identify the locally installed embedding stack without loading the model.
+
+    ``embedding_revision`` is the Hugging Face snapshot (commit hash) of the
+    model in the local cache, or None when it cannot be resolved offline, for
+    example before the model is first downloaded.
+    """
+    try:
+        st_version = version("sentence-transformers")
+    except PackageNotFoundError:
+        st_version = None
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        repo_id = EMBED_MODEL if "/" in EMBED_MODEL else f"sentence-transformers/{EMBED_MODEL}"
+        cached = try_to_load_from_cache(repo_id, "config.json")
+        revision = Path(cached).parent.name if isinstance(cached, str) else None
+    except Exception:  # noqa: BLE001 - the revision is best-effort provenance
+        revision = None
+    return {"sentence_transformers_version": st_version, "embedding_revision": revision}
+
+
+def embedding_mismatches(manifest: dict, installed: dict | None = None) -> list[str]:
+    """Explain why stored embeddings may differ from what the installed stack
+    would produce; an empty list means they are compatible.
+
+    A manifest without a recorded sentence-transformers version (written before
+    versions were recorded) counts as a mismatch, because its vectors cannot be
+    shown to match the installed model. Revisions are compared only when both
+    are known.
+    """
+    installed = installed or embedding_versions()
+    reasons = []
+    if manifest.get("embedding_model") != EMBED_MODEL:
+        reasons.append(f"embedding model {manifest.get('embedding_model')!r} != {EMBED_MODEL!r}")
+    recorded = manifest.get("sentence_transformers_version")
+    if recorded is None:
+        reasons.append("sentence-transformers version not recorded (index predates version tracking)")
+    elif recorded != installed["sentence_transformers_version"]:
+        reasons.append(f"sentence-transformers {recorded} != installed "
+                       f"{installed['sentence_transformers_version']}")
+    revision, current = manifest.get("embedding_revision"), installed["embedding_revision"]
+    if revision and current and revision != current:
+        reasons.append(f"model revision {revision} != cached {current}")
+    return reasons
 
 
 def load_documents(data_dir: str) -> list[dict]:
@@ -55,15 +111,23 @@ def load_documents(data_dir: str) -> list[dict]:
     return docs
 
 
-def _active_collection(persist_dir: str):
-    """Return the active collection and its corpus manifest (None if unsupported)."""
-    pointer = Path(persist_dir) / "active-collection"
-    name = pointer.read_text(encoding="utf-8") if pointer.exists() else "observability-docs"
-    collection = chromadb.PersistentClient(path=persist_dir).get_collection(name)
+def _manifest(collection) -> dict | None:
+    """Return a collection's corpus manifest, or None if absent or unsupported."""
     manifest = json.loads((collection.metadata or {}).get("corpus_manifest", "null"))
     if not manifest or manifest["schema_version"] != 1:
-        manifest = None
-    return collection, manifest
+        return None
+    return manifest
+
+
+def _active_name(persist_dir: str) -> str:
+    pointer = Path(persist_dir) / "active-collection"
+    return pointer.read_text(encoding="utf-8") if pointer.exists() else LEGACY_COLLECTION
+
+
+def _active_collection(persist_dir: str):
+    """Return the active collection and its corpus manifest (None if unsupported)."""
+    collection = chromadb.PersistentClient(path=persist_dir).get_collection(_active_name(persist_dir))
+    return collection, _manifest(collection)
 
 
 def _reusable_embeddings(collection, source: str, source_sha256: str,
@@ -108,11 +172,17 @@ def check_freshness(persist_dir: str, data_dir: str | None = None) -> dict:
         deleted = sorted(indexed.keys() - current.keys())
         modified = sorted(source for source in current.keys() & indexed.keys()
                           if current[source] != indexed[source])
+        installed = embedding_versions()
+        mismatch = embedding_mismatches(manifest, installed)
         return {
-            "status": "stale" if added or deleted or modified else "current",
+            "status": "stale" if added or deleted or modified or mismatch else "current",
             "ingested_at": manifest["ingested_at"],
             "corpus_sha256": manifest["corpus_sha256"],
             "embedding_model": manifest["embedding_model"],
+            "sentence_transformers_version": manifest.get("sentence_transformers_version"),
+            "embedding_revision": manifest.get("embedding_revision"),
+            "installed": installed,
+            "embedding_mismatch": mismatch,
             "data_dir": str(root),
             "added": added, "modified": modified, "deleted": deleted,
         }
@@ -241,19 +311,24 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     sources = {doc["rel_path"]: doc["sha256"] for doc in docs}
 
     # ── Find an active index whose embeddings can be reused ──────
+    versions = embedding_versions()
     previous, indexed = None, {}
     if not rebuild and Path(persist_dir).is_dir():
+        reasons = ["no supported corpus manifest"]
         try:
             previous, previous_manifest = _active_collection(persist_dir)
-            if (previous_manifest["embedding_model"] == EMBED_MODEL
-                    and previous_manifest["chunk_size"] == chunk_size):
-                indexed = previous_manifest["sources"]
-            else:
+            reasons = embedding_mismatches(previous_manifest, versions)
+            if previous_manifest["chunk_size"] != chunk_size:
+                reasons.append(f"chunk size {previous_manifest['chunk_size']} != {chunk_size}")
+            if reasons:
                 previous = None
-        except (OSError, UnicodeError, ValueError, KeyError, TypeError, NotFoundError):
+            else:
+                indexed = previous_manifest["sources"]
+        except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError,
+                NotFoundError):
             previous = None
         if previous is None:
-            print("No compatible active index; embedding all documents.")
+            print(f"No compatible active index ({'; '.join(reasons)}); embedding all documents.")
 
     # ── Chunk, reusing embeddings of unchanged files ─────────────
     all_chunks: list[dict] = []
@@ -297,6 +372,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
         from sentence_transformers import SentenceTransformer
         print("Loading embedding model...")
         embedder = SentenceTransformer(EMBED_MODEL)
+        versions = embedding_versions()  # the load may have downloaded the model
         print(f"Embedding {len(to_embed)} chunks...")
         fresh = embedder.encode([all_chunks[i]["text"] for i in to_embed],
                                 show_progress_bar=True).tolist()
@@ -323,14 +399,23 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     client = chromadb.PersistentClient(path=persist_dir)
 
     # Keep readers on the previous collection until the replacement is complete.
-    name = f"observability-docs-{uuid4().hex}"
+    name = f"{COLLECTION_PREFIX}-{uuid4().hex}"
+    existing = {c.name for c in client.list_collections() if _MANAGED_NAME.fullmatch(c.name)}
+    replaced = _active_name(persist_dir)
+    if replaced not in existing:
+        replaced = None
     manifest = {
         "schema_version": 1,
         "ingested_at": datetime.now(timezone.utc).isoformat(),
         "data_dir": resolved_dir,
         "embedding_model": EMBED_MODEL,
-        "embedding_revision": None,
+        # Reused vectors keep their recorded revision when the cache cannot tell.
+        "embedding_revision": versions["embedding_revision"] or (
+            previous_manifest.get("embedding_revision") if previous is not None else None),
+        "sentence_transformers_version": versions["sentence_transformers_version"],
         "chunk_size": chunk_size,
+        # The collection this one replaces; --prune keeps it for rollback.
+        "previous_collection": replaced,
         "sources": sources,
         "corpus_sha256": sha256(json.dumps(sources, sort_keys=True).encode("utf-8")).hexdigest(),
     }
@@ -357,6 +442,10 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
         pending.unlink(missing_ok=True)
 
     print(f"Done — {len(all_chunks)} chunks in collection '{name}'")
+    older = len(existing - {replaced})  # neither active nor kept for rollback by default
+    if older:
+        print(f"{older} older or incomplete collection(s) remain on disk; "
+              "run `python ingest.py --prune` to delete them.")
 
     # Print a sample chunk for verification
     print("\nSample chunk:")
@@ -364,6 +453,104 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
     print(texts[0][:500])
     print("─" * 50)
     return len(all_chunks)
+
+
+def plan_prune(persist_dir: str, keep: int = 2) -> dict:
+    """Decide which collections a prune keeps and removes, without deleting.
+
+    The active collection is always kept. ``keep`` counts it, so the default 2
+    also keeps the collection it replaced, for rollback; larger values follow
+    each manifest's ``previous_collection`` further back. Where that chain ends
+    early (history not recorded, a predecessor already pruned, or a rollback),
+    the newest remaining collections by ingestion time fill the slots.
+    Collections whose names this tool did not create are never touched.
+    """
+    if keep < 1:
+        raise ValueError("--keep must be at least 1; the active collection is never pruned.")
+    client = chromadb.PersistentClient(path=persist_dir)
+    collections = {c.name: c for c in client.list_collections() if _MANAGED_NAME.fullmatch(c.name)}
+    active = _active_name(persist_dir)
+    if active not in collections:
+        raise ValueError(f"Active collection {active!r} not found in {persist_dir}; nothing pruned.")
+
+    def manifest_of(name):
+        try:
+            return _manifest(collections[name]) or {}
+        except (ValueError, KeyError, TypeError):
+            return {}
+
+    kept, name = [active], active
+    while len(kept) < keep:
+        name = manifest_of(name).get("previous_collection")
+        if name not in collections or name in kept:
+            break
+        kept.append(name)
+    # History not recorded, already pruned, or rolled back past: rather than
+    # delete more, fill remaining slots with the newest others (no manifest last).
+    others = sorted((n for n in collections if n not in kept),
+                    key=lambda n: manifest_of(n).get("ingested_at", ""), reverse=True)
+    kept.extend(others[:keep - len(kept)])
+    return {"active": active, "kept": kept,
+            "remove": sorted(n for n in collections if n not in kept)}
+
+
+_HNSW_FILES = {"header.bin", "data_level0.bin", "length.bin", "link_lists.bin",
+               "index_metadata.pickle"}
+
+
+def _orphaned_segment_dirs(persist_dir: str) -> list[Path]:
+    """Vector-index directories no collection references any more.
+
+    Chroma (1.5) deletes a collection's rows but leaves its HNSW directory on
+    disk. A directory qualifies only if its name is a UUID absent from Chroma's
+    segment table and it holds nothing but HNSW files; anything else is kept.
+    """
+    import sqlite3
+    from uuid import UUID
+
+    database = Path(persist_dir) / "chroma.sqlite3"
+    try:
+        with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as db:
+            referenced = {row[0] for row in db.execute("SELECT id FROM segments")}
+    except sqlite3.Error:
+        return []  # unknown layout: delete nothing
+    orphans = []
+    for path in Path(persist_dir).iterdir():
+        try:
+            UUID(path.name)
+        except ValueError:
+            continue
+        if (path.is_dir() and not path.is_symlink() and path.name not in referenced
+                and all(f.is_file() and f.name in _HNSW_FILES for f in path.iterdir())):
+            orphans.append(path)
+    return sorted(orphans)
+
+
+def prune_collections(persist_dir: str, keep: int = 2, dry_run: bool = False) -> dict:
+    """Delete superseded and incomplete collections as decided by plan_prune.
+
+    Run only while no ingestion writes to the same index directory. A reader
+    (CLI session or UI) still using a removed collection must reload.
+    """
+    if not Path(persist_dir).is_dir():
+        raise ValueError(f"Index directory unavailable: {persist_dir}")
+    plan = plan_prune(persist_dir, keep)
+    removed = []
+    if not dry_run:
+        client = chromadb.PersistentClient(path=persist_dir)
+        for name in plan["remove"]:
+            if name == _active_name(persist_dir):  # re-read: never delete the active index
+                continue
+            client.delete_collection(name)
+            removed.append(name)
+    orphans = [] if dry_run else _orphaned_segment_dirs(persist_dir)
+    freed = sum(f.stat().st_size for d in orphans for f in d.iterdir())
+    for directory in orphans:
+        shutil.rmtree(directory)
+    return {"active": plan["active"], "kept": plan["kept"], "removed": removed,
+            "would_remove": plan["remove"] if dry_run else [],
+            "segment_dirs_removed": [d.name for d in orphans], "bytes_freed": freed,
+            "dry_run": dry_run}
 
 
 def main() -> None:
@@ -377,7 +564,21 @@ def main() -> None:
                         help="Re-embed every document instead of reusing unchanged embeddings")
     parser.add_argument("--check", action="store_true",
                         help="Check local source freshness without embedding or generation")
+    parser.add_argument("--prune", action="store_true",
+                        help="Delete superseded and incomplete collections (never the active one)")
+    parser.add_argument("--keep", type=int, default=2,
+                        help="With --prune: collections to keep, including the active one (default 2)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="With --prune: report what would be removed without deleting")
     args = parser.parse_args()
+    if args.prune:
+        try:
+            result = prune_collections(args.persist_dir, args.keep, dry_run=args.dry_run)
+        except ValueError as exc:
+            print(exc)
+            sys.exit(1)
+        print(json.dumps(result, indent=2))
+        return
     if args.check:
         result = check_freshness(args.persist_dir, args.data_dir)
         print(json.dumps(result, indent=2))
