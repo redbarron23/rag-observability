@@ -1,5 +1,5 @@
 -r requirements-ui.txt
 -r requirements-otel.txt
-pytest>=9.1.1,<10
+pytest>=9.2.0,<10
 jsonschema>=4.19,<5  # contract tests only; api.py never imports it
 ruff>=0.17,<0.18  # 0.x minor releases can add rules; Dependabot bumps it
