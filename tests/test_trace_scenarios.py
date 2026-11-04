@@ -82,3 +82,11 @@ def test_trace_poll_retries_collector_connection_reset(monkeypatch):
     assert trace_demo.wait_for_trace("http://fictional", "trace", {"rag.question"}) == [
         {"name": "rag.question"}]
     assert read.call_count == 2
+
+
+def test_demo_selects_scenario_with_tracing_disabled(monkeypatch, capsys):
+    import trace_demo
+    monkeypatch.setattr(query, "_trace_provider", lambda: None)
+    monkeypatch.setattr("sys.argv", ["trace_demo.py", "--scenario", "no_match"])
+    trace_demo.main()
+    assert "PASS: no_match application assertions; tracing disabled" in capsys.readouterr().out

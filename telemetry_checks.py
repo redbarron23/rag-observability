@@ -184,6 +184,9 @@ def check():
             assert query._trace_provider().force_flush(timeout_millis=5000)
             spans = wait_for_trace(jaeger, trace_id, names_for(scenario))
             verify(spans, scenario)
+            print("OBSERVED " + json.dumps({"scenario": scenario, "trace_id": trace_id,
+                  "spans": [{"name": span["name"], "attributes": attributes(span),
+                             "error": span.get("status", {}).get("code")} for span in spans]}))
             reports.append({"scenario": scenario, "trace_id": trace_id, "passed": True,
                             "spans": spans})
 
@@ -260,6 +263,9 @@ builtins.__import__ = missing
                 reports.append({"scenario": variant, "passed": True})
         private_free(json.dumps(payloads))
         private_free(diagnostics.getvalue())
+        print("VERSIONS " + json.dumps({"sdk": version("opentelemetry-sdk"),
+              "exporter": version("opentelemetry-exporter-otlp-proto-http"),
+              "python": platform.python_version(), "retrieval": "vector"}))
         completed = True
         print(f"PASS: {len(reports)} telemetry scenarios; sanitized telemetry-results.json")
     finally:

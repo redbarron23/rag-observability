@@ -149,7 +149,7 @@ def main():
             assert child.get("parentSpanId") == root["spanId"], "missing question parent"
         print(f"PASS: {args.scenario}; Jaeger received {len(spans)} linked spans; trace {trace_id}")
     else:
-        print(f"PASS: {args.scenario} application assertions; exported trace {trace_id}")
+        print(f"PASS: {args.scenario} application assertions; trace context {trace_id}")
 
 
 if __name__ == "__main__":

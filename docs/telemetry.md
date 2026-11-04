@@ -181,6 +181,9 @@ Exporter waits are bounded separately. A passing `collector_outage` entry means 
 held; it does not mean delivery succeeded. `same_process_recovery` requires a fresh collected trace
 from the original provider instance. Failed batches may be dropped; do not expect replay.
 Cleanup removes only the collector created by this command, including on failure.
+For the Feynman exercise, predict whether stopping Jaeger should break an answer, then explain
+why the two pass flags differ from a successful export. Answer key: RAG remains usable while
+telemetry delivery fails; a new collected trace after restart proves recovery, not replay.
 
 The same command starts fresh processes for unset/none/SDK-disabled tracing and sampling-off.
 Those must return a usable answer with **zero new application export requests**. Console output
