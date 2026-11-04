@@ -48,23 +48,21 @@ def main():
     assert provider is not None, "Set OTEL_TRACES_EXPORTER=console or otlp and install requirements-otel.txt"
     assert provider.force_flush(timeout_millis=5000), "Trace export did not flush within five seconds"
     if args.verify_jaeger:
-        endpoint = args.verify_jaeger.rstrip("/") + "/api/traces/" + trace_ids[0]
+        endpoint = args.verify_jaeger.rstrip("/") + "/api/v3/traces/" + trace_ids[0]
         deadline = time.monotonic() + 30
         while True:
             try:
                 with urlopen(endpoint, timeout=2) as response:
-                    traces = json.load(response)["data"]
+                    result = json.load(response).get("result", {})
             except (URLError, TimeoutError):
-                traces = []
-            for trace in traces:
-                spans = {s["operationName"]: s for s in trace["spans"]}
-                if set(spans) != {"rag.question", "rag.retrieve", "rag.generate"}:
-                    continue
+                result = {}
+            spans = {span["name"]: span for resource in result.get("resourceSpans", [])
+                     for scope in resource.get("scopeSpans", []) for span in scope.get("spans", [])}
+            if set(spans) == {"rag.question", "rag.retrieve", "rag.generate"}:
                 root = spans["rag.question"]
                 for child in (spans["rag.retrieve"], spans["rag.generate"]):
-                    assert any(r["spanID"] == root["spanID"] and r["refType"] == "CHILD_OF"
-                               for r in child["references"]), "missing question parent"
-                print(f"PASS: Jaeger received question/retrieve/generate trace {trace['traceID']}")
+                    assert child.get("parentSpanId") == root["spanId"], "missing question parent"
+                print(f"PASS: Jaeger received question/retrieve/generate trace {trace_ids[0]}")
                 return
             assert time.monotonic() < deadline, "Jaeger did not return the three-span trace in 30 seconds"
             time.sleep(0.2)
