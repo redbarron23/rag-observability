@@ -364,6 +364,37 @@ Tracing the combined stack needs a tested RAG pin, optional packages in its imag
 collector/environment configuration. A container's `127.0.0.1` refers to its own network namespace,
 so it cannot use the host collector address without suitable networking.
 
+## Incoming distributed trace context
+
+After authentication, `POST /retrieve` extracts only W3C `traceparent` and `tracestate` with the
+standard OTel propagator. A valid remote caller becomes the parent of `rag.question`; the existing
+`rag.retrieve` span stays its child. Missing or invalid context starts an independent trace, and
+context is detached after each request, including on errors. `baggage`, credentials, reviewer
+identity and arbitrary request headers are not imported as trace context or recorded as attributes.
+Invalid tracestate parser diagnostics are redacted so malformed header values do not enter logs.
+
+Trace context is correlation metadata, never authentication or approval. Requests without a valid
+bearer key are rejected before extraction and produce no retrieval/question spans. Health requests
+are not traced. Tracing remains optional and the host's global tracer provider is unchanged.
+Sampling follows the configured SDK sampler; a valid incoming ID does not guarantee a recorded span.
+
+The caller coordination is [obs-agent #112](https://github.com/redbarron23/obs-agent/issues/112).
+With its opt-in Compose setup, the expected graph is:
+
+```text
+obs-agent-policy: obs.policy.retrieve
+└── obs-rag-retrieval: rag.question
+    └── obs-rag-retrieval: rag.retrieve
+```
+
+Select the caller service in Jaeger or open the exact trace ID printed by its integration check.
+Expand the cross-service child, then inspect the retrieval source and distances. The caller includes
+HTTP waiting/serialization; the provider question includes retrieval. Parent durations already
+include their children, so adding all three double-counts work. A caller timeout or authorization
+failure may have no provider question child. Use the caller outcome and HTTP status before
+interpreting an absent child as a retrieval failure. This extends the lab above without changing
+its standalone root-question examples.
+
 ## Data and verification boundaries
 
 Tracing is opt-in. Source paths, model identifiers, usage and configured resource metadata go to
