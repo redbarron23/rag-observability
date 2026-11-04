@@ -364,6 +364,59 @@ Tracing the combined stack needs a tested RAG pin, optional packages in its imag
 collector/environment configuration. A container's `127.0.0.1` refers to its own network namespace,
 so it cannot use the host collector address without suitable networking.
 
+## Incoming distributed trace context
+
+After authentication, `POST /retrieve` extracts only W3C `traceparent` and `tracestate` with the
+standard OTel propagator. A valid remote caller becomes the parent of `rag.question`; the existing
+`rag.retrieve` span stays its child. Missing or invalid context starts an independent trace, and
+context is detached after each request, including on errors. `baggage`, credentials, reviewer
+identity and arbitrary request headers are not imported as trace context or recorded as attributes.
+Invalid tracestate parser diagnostics are redacted so malformed header values do not enter logs.
+
+Trace context is correlation metadata, never authentication or approval. Requests without a valid
+bearer key are rejected before extraction and produce no retrieval/question spans. Health requests
+are not traced. Tracing remains optional and the host's global tracer provider is unchanged.
+Sampling follows the configured SDK sampler; a valid incoming ID does not guarantee a recorded span.
+
+The caller coordination is [obs-agent #112](https://github.com/redbarron23/obs-agent/issues/112).
+With its opt-in Compose setup, the expected graph is:
+
+```text
+obs-agent-policy: obs.policy.retrieve
+└── obs-rag-retrieval: rag.question
+    └── obs-rag-retrieval: rag.retrieve
+```
+
+A captured fictional example is available in
+[obs-agent CI run 41923451106](https://github.com/redbarron23/obs-agent/actions/runs/41923451106).
+Consumer revision `5b5c939f7885a5c1fc5d7ad3f4e55dc6fe7b23b0` called provider revision
+`4efa35728a935acf6d9163e7cffb97c9f8a9ca19`. Its check printed:
+
+```text
+PASS: distributed obs-agent/RAG trace 3aaf48e8c14772d164a7ba18e8b4082c; three linked spans, two services
+```
+
+The assertions verified caller → question → retrieval parent IDs, one trace ID, distinct service
+resources, hybrid retrieval with a tagging-policy source/distance, no generation and no question,
+excerpt or bearer-key text in collected spans. The run then stopped Jaeger, checked normal retrieval
+and authentication, restarted it and verified a new trace
+`59eac3995850005b025a364600701f21`. These IDs identify that disposable collector's in-memory traces;
+they will not exist in your own Jaeger. They document actual delivery/recovery assertions, not
+model quality or a latency benchmark.
+
+Feynman exercise: predict what changes if the caller times out before the provider finishes, then
+explain why the three durations cannot be added. Answer key: the caller can report timeout while
+a provider span finishes later; the shared ID helps correlate them but is not proof of caller
+success. Caller time includes its wait, and provider question time includes retrieval.
+
+Select the caller service in Jaeger or open the exact trace ID printed by its integration check.
+Expand the cross-service child, then inspect the retrieval source and distances. The caller includes
+HTTP waiting/serialization; the provider question includes retrieval. Parent durations already
+include their children, so adding all three double-counts work. A caller timeout or authorization
+failure may have no provider question child. Use the caller outcome and HTTP status before
+interpreting an absent child as a retrieval failure. This extends the lab above without changing
+its standalone root-question examples.
+
 ## Data and verification boundaries
 
 Tracing is opt-in. Source paths, model identifiers, usage and configured resource metadata go to

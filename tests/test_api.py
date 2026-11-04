@@ -324,3 +324,37 @@ def test_docs_example_matches_schema():
     example = json.loads(doc.split("```json\n", 1)[1].split("```", 1)[0])
     assert not contract_errors(RETRIEVE, example)
     assert example["contract_version"] == api.CONTRACT_VERSION
+
+
+def test_http_extracts_context_only_after_authentication(index, serve, monkeypatch):
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+    import query
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider(shutdown_on_exit=False)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(query, "_trace_provider", lambda: provider)
+    data, persist = index
+    port = serve(service_for(persist, data_dir=str(data)), api_key="fixture-key")
+    try:
+        with provider.get_tracer("caller").start_as_current_span("caller") as caller:
+            headers = {"Authorization": "Bearer fixture-key"}
+            TraceContextTextMapPropagator().inject(headers)
+        assert call(port, "POST", "/retrieve", {"question": "owner"}, headers)[0] == 200
+        collected = exporter.get_finished_spans()
+        root = next(s for s in collected if s.name == "rag.question")
+        assert root.parent.span_id == caller.get_span_context().span_id
+        assert root.context.trace_id == caller.get_span_context().trace_id
+        before = len(collected)
+        headers.pop("Authorization")
+        assert call(port, "POST", "/retrieve", {"question": "owner"}, headers)[0] == 401
+        assert len(exporter.get_finished_spans()) == before
+        assert call(port, "POST", "/retrieve", {"question": "owner"},
+                    {"Authorization": "Bearer fixture-key", "traceparent": "invalid"})[0] == 200
+        roots = [s for s in exporter.get_finished_spans() if s.name == "rag.question"]
+        assert roots[-1].parent is None and roots[-1].context.trace_id != root.context.trace_id
+    finally:
+        provider.shutdown()

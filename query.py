@@ -73,6 +73,49 @@ def _trace_provider():
         return None
 
 
+
+_extracting_context = ContextVar("rag_extracting_context", default=False)
+
+
+class _ContextLogFilter(logging.Filter):
+    def filter(self, record):
+        if _extracting_context.get():
+            # The SDK's tracestate parser can log invalid raw header values.
+            record.msg, record.args = "Invalid trace context metadata ignored.", ()
+        return True
+
+
+@lru_cache(maxsize=1)
+def _propagator():
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    logging.getLogger("opentelemetry.trace.span").addFilter(_ContextLogFilter())
+    return TraceContextTextMapPropagator()
+
+
+@contextmanager
+def incoming_trace(headers):
+    """Isolate each authenticated HTTP request; accept only standard W3C trace context."""
+    token = None
+    extracting = _extracting_context.set(True)
+    try:
+        if _trace_provider() is not None:
+            from opentelemetry import context
+            carrier = {key: headers[key] for key in ("traceparent", "tracestate") if headers.get(key)}
+            token = context.attach(_propagator().extract(carrier, context=context.Context()))
+    except Exception:  # noqa: BLE001 - correlation must not break retrieval
+        _trace_logger.warning("Could not extract trace context.")
+    finally:
+        _extracting_context.reset(extracting)
+    try:
+        yield
+    finally:
+        if token is not None:
+            try:
+                context.detach(token)
+            except Exception:  # noqa: BLE001 - preserve the request result on SDK failure
+                _trace_logger.warning("Could not detach trace context.")
+
+
 def _tracer():
     provider = _trace_provider()
     return provider.get_tracer("rag-observability") if provider is not None else None

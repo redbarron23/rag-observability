@@ -51,6 +51,7 @@ from query import (
     PERSIST_DIR,
     RETRIEVAL_MODES,
     RAGEngine,
+    incoming_trace,
     kept_by_exact_term,
     trace_attributes,
     trace_span,
@@ -389,7 +390,9 @@ def make_handler(service: RetrievalService, api_key: str | None, check_host: boo
                 if path == "/retrieve":
                     if method != "POST":
                         raise ApiError(405, "method_not_allowed", "Use POST /retrieve.")
-                    self._send(200, service.retrieve(self._read_json()))
+                    body = self._read_json()
+                    with incoming_trace(self.headers):
+                        self._send(200, service.retrieve(body))
                 elif path == "/health":
                     if method != "GET":
                         raise ApiError(405, "method_not_allowed", "Use GET /health.")

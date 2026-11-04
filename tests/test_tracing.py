@@ -23,9 +23,10 @@ ANSWER = "PRIVATE ANSWER"
 def tracing_off(monkeypatch):
     monkeypatch.delenv("OTEL_TRACES_EXPORTER", raising=False)
     monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
-    query._trace_provider.cache_clear()
+    original_provider = query._trace_provider
+    original_provider.cache_clear()
     yield
-    query._trace_provider.cache_clear()
+    original_provider.cache_clear()
 
 
 @pytest.fixture
@@ -237,3 +238,77 @@ def test_console_configuration_does_not_replace_host_provider(monkeypatch):
         assert trace.get_tracer_provider() is original
     finally:
         provider.shutdown()
+
+
+def test_incoming_context_is_remote_and_does_not_copy_baggage(spans, engine, monkeypatch):
+    from opentelemetry import baggage, trace
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+    eng, _, _ = engine
+    monkeypatch.setattr(query, "_trace_provider", lambda: object())
+    tracer = query._tracer()
+    with tracer.start_as_current_span("upstream") as parent:
+        headers = {}
+        TraceContextTextMapPropagator().inject(headers)
+        headers["baggage"] = "reviewer=PRIVATE"
+        headers["tracestate"] = "vendor=opaque"
+        with query.incoming_trace(headers):
+            assert trace.get_current_span().get_span_context().is_remote
+            assert trace.get_current_span().get_span_context().trace_state["vendor"] == "opaque"
+            assert not baggage.get_all()
+            eng.answer(QUESTION)
+        assert trace.get_current_span() is parent
+    question = next(s for s in spans() if s.name == "rag.question")
+    assert question.parent.span_id == parent.get_span_context().span_id
+    assert question.parent.is_remote
+    assert question.context.trace_id == parent.get_span_context().trace_id
+
+
+@pytest.mark.parametrize("header", [None, "bad", "00-" + "0" * 32 + "-" + "0" * 16 + "-01"])
+def test_missing_invalid_context_starts_new_trace(spans, engine, monkeypatch, header):
+    from opentelemetry import trace
+    eng, _, _ = engine
+    monkeypatch.setattr(query, "_trace_provider", lambda: object())
+    with query._tracer().start_as_current_span("ambient") as ambient:
+        with query.incoming_trace({"traceparent": header}):
+            eng.answer(QUESTION)
+        assert trace.get_current_span() is ambient
+    question = next(s for s in spans() if s.name == "rag.question")
+    assert question.parent is None
+    assert question.context.trace_id != ambient.get_span_context().trace_id
+
+
+def test_concurrent_incoming_requests_do_not_share_parents(spans, engine, monkeypatch):
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    eng, _, _ = engine
+    monkeypatch.setattr(query, "_trace_provider", lambda: object())
+    carriers = []
+    for _ in range(2):
+        with query._tracer().start_as_current_span("upstream"):
+            headers = {}
+            TraceContextTextMapPropagator().inject(headers)
+            carriers.append(headers)
+
+    def request(headers):
+        with query.incoming_trace(headers):
+            return eng.answer(QUESTION)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert all(answer[0] == ANSWER for answer in pool.map(request, carriers))
+    parents = {s.context.span_id: s for s in spans() if s.name == "upstream"}
+    questions = [s for s in spans() if s.name == "rag.question"]
+    assert len(questions) == 2 and len({s.parent.span_id for s in questions}) == 2
+    assert all(s.context.trace_id == parents[s.parent.span_id].context.trace_id for s in questions)
+
+
+def test_invalid_tracestate_does_not_leak_to_diagnostics(spans, engine, monkeypatch, caplog):
+    from opentelemetry import trace
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    monkeypatch.setattr(query, "_trace_provider", lambda: object())
+    with query._tracer().start_as_current_span("upstream"):
+        headers = {}
+        TraceContextTextMapPropagator().inject(headers)
+    headers["tracestate"] = "PRIVATE INVALID HEADER"
+    with query.incoming_trace(headers):
+        assert not trace.get_current_span().get_span_context().trace_state
+    assert "PRIVATE" not in caplog.text
