@@ -27,3 +27,6 @@ chroma_db/
 # Documents uploaded through the local UI
 data/uploads/
 
+
+# Disposable telemetry integration report
+telemetry-results.json

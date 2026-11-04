@@ -80,6 +80,43 @@ and [Jaeger's all-in-one setup](https://www.jaegertracing.io/docs/2.22/getting-s
 configuration. Fault-diagnosis walkthroughs remain separate work in
 [#36](https://github.com/redbarron23/rag-observability/issues/36).
 
+## Run the automated scenarios
+
+Install `requirements-dev.txt` in the active Python environment and start Docker, then run:
+
+```bash
+python telemetry_checks.py
+```
+
+The check creates its own uniquely named Jaeger container with random loopback ports and removes
+it on success or failure. It does not use your running collector. No model download or paid API
+call is made. Ordinary unit tests remain independent of Docker. CI runs this command and retains
+`telemetry-results.json`, a sanitized summary of scenario names, pass flags and trace IDs.
+
+| Controlled scenario | Required observation |
+| --- | --- |
+| Successful answer, refusal, fallback | Three linked spans; served/requested model, token counts and refusal/fallback flags match the fictional response |
+| Missing usage | Token counts and fallback stay absent, not invented zero/false values |
+| No match | Two spans, no generation/provider call |
+| Retrieval-only HTTP request | Real authenticated HTTP request, two spans, no generation/provider call |
+| Provider/retrieval error | Original exception preserved; failing child and question contain only error class/status |
+| Collector stopped | Answers, retrieval and exceptions unchanged; operations and exporter waits bounded |
+| Collector restarted | Same process/provider exports a fresh, distinct trace |
+| Tracing unset/none, SDK disabled, sampling off | Usable answer and no OTLP application export requests |
+| Console, missing optional exporter, trace endpoint override | Safe console spans; missing dependency leaves answers working; trace endpoint/protocol override wins |
+
+A local recording proxy forwards real HTTP/protobuf exports to Jaeger. The assertions inspect
+decoded OTLP payloads (including events), collected trace graphs, captured SDK logs and child
+process diagnostics for sentinel question/document/answer/exception text and credentials. The
+credential header is checked at the proxy but never written to the report. Source paths and
+configured resource/model/usage metadata remain permitted. These checks cover controlled fixture
+content; they do not prove arbitrary user-configured resource metadata is free of secrets.
+
+Collector recovery verifies new traffic. Exporter retries are bounded and failed batches can be
+dropped; the test does not promise replay of spans produced during an outage. The diagnostic
+walkthrough in [#36](https://github.com/redbarron23/rag-observability/issues/36) can reuse these
+controlled scenarios to explain what each result means.
+
 ## Read a trace
 
 In Jaeger, select the service, choose a recent time range and **Find Traces**, then open the
@@ -159,9 +196,10 @@ sample collector, run `docker stop rag-trace-jaeger`.
 
 ## Using this with the obs-agent Compose simulation
 
-The existing obs-agent Compose simulation pins an older RAG revision and does not forward the
+The base obs-agent Compose simulation may pin an older RAG revision and does not forward the
 OTel variables or install the optional HTTP exporter. Starting Jaeger alone will not enable
 tracing inside that stack. The standalone RAG demo above is the verified setup for this change.
+The opt-in combined setup is tracked in [obs-agent #111](https://github.com/redbarron23/obs-agent/issues/111).
 Tracing the combined stack needs a tested RAG pin, optional packages in its image, and explicit
 collector/environment configuration. A container's `127.0.0.1` refers to its own network namespace,
 so it cannot use the host collector address without suitable networking.
@@ -176,8 +214,8 @@ policy before sharing it. The loopback, in-memory demo is a disposable developme
 
 `tests/test_tracing.py` checks parentage, metadata, concurrent isolation, no-match/refusal/error
 behavior, no-op/missing SDK operation, host-provider preservation and telemetry failures. CI also
-starts Jaeger, exports a newly generated fictional trace and verifies that exact trace's three
-spans and parent IDs through its v3 API. This validates telemetry delivery, not live model quality.
+runs the isolated collector scenarios above, verifying exact trace IDs, graph links, metadata,
+privacy and recovery through the Jaeger v3 API. This validates telemetry delivery, not live model quality.
 
 References: [OTel Python exporters](https://opentelemetry.io/docs/languages/python/exporters/),
 [Jaeger setup](https://www.jaegertracing.io/docs/2.22/getting-started/), and
