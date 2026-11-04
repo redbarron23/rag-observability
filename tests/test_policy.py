@@ -189,7 +189,9 @@ def test_fixtures_through_ingestion_and_retrieval(engine):
 
 def test_status_labels_reach_both_providers_prompts(engine):
     rag, _, _ = engine
-    chunks = [c for c in rag.retrieve("x", n_results=10, max_distance=None, as_of=AS_OF)
+    # Equal fixture embeddings tie; prompt-label checks need both versions, not arbitrary top-k.
+    chunks = [c for c in rag.retrieve("x", n_results=rag.collection.count(),
+                                    max_distance=None, as_of=AS_OF)
               if c["source"] in ("oncall-v2.md", "oncall-v1.md")]
     titles = [block["title"] for block in anthropic_content("q", chunks)[:-1]]
     assert any("not yet in effect (effective from 2099-01-01)" in t for t in titles)
