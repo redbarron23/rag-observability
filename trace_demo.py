@@ -20,7 +20,7 @@ ANSWER = "SENTINEL PRIVATE ANSWER"
 EXCEPTION = "SENTINEL PRIVATE EXCEPTION"
 CREDENTIAL = "sentinel-private-credential"
 SCENARIOS = ("success", "no_match", "refusal", "fallback", "unknown_usage",
-             "provider_error", "retrieval_error", "http")
+             "provider_error", "retrieval_error", "http", "slow_retrieval", "slow_generation")
 
 
 def run_scenario(scenario="success"):
@@ -35,6 +35,8 @@ def run_scenario(scenario="success"):
         span = query._current_trace_span.get()
         if span is not None:
             trace_ids.append(f"{span.get_span_context().trace_id:032x}")
+        if scenario == "slow_retrieval":
+            time.sleep(0.15)
         if scenario == "retrieval_error":
             raise ValueError(EXCEPTION)
         if scenario == "no_match":
@@ -55,6 +57,14 @@ def run_scenario(scenario="success"):
             iterations=[SimpleNamespace(type="fallback_message")] if scenario == "fallback" else [])),
         content=[SimpleNamespace(type="text", text=ANSWER, citations=[])],
     )
+    if scenario == "slow_generation":
+        response = client.beta.messages.create.return_value
+
+        def slow_response(**kwargs):
+            time.sleep(0.15)
+            return response
+
+        client.beta.messages.create.side_effect = slow_response
     if scenario == "provider_error":
         client.beta.messages.create.side_effect = RuntimeError(EXCEPTION)
     with patch.dict("os.environ", {"LLM_PROVIDER": "anthropic", "LLM_MODEL": "fictional-demo-model"}), \
@@ -118,18 +128,28 @@ def wait_for_trace(jaeger, trace_id, names):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-jaeger", help="local Jaeger query URL, e.g. http://127.0.0.1:16686")
+    parser.add_argument("--scenario", choices=SCENARIOS, default="success")
     args = parser.parse_args()
-    trace_id = run_scenario()
+    trace_id = run_scenario(args.scenario)
     provider = query._trace_provider()
-    assert provider is not None, "Set OTEL_TRACES_EXPORTER=console or otlp and install requirements-otel.txt"
+    if provider is None:
+        assert not args.verify_jaeger, "Collector verification needs enabled tracing"
+        print(f"PASS: {args.scenario} application assertions; tracing disabled")
+        return
     assert provider.force_flush(timeout_millis=5000), "Trace export did not flush within five seconds"
     if args.verify_jaeger:
-        spans = {s["name"]: s for s in wait_for_trace(
-            args.verify_jaeger, trace_id, {"rag.question", "rag.retrieve", "rag.generate"})}
+        names = {"rag.question", "rag.retrieve"}
+        if args.scenario not in ("http", "no_match", "retrieval_error"):
+            names.add("rag.generate")
+        spans = {s["name"]: s for s in wait_for_trace(args.verify_jaeger, trace_id, names)}
         root = spans["rag.question"]
-        for child in (spans["rag.retrieve"], spans["rag.generate"]):
+        for name, child in spans.items():
+            if name == "rag.question":
+                continue
             assert child.get("parentSpanId") == root["spanId"], "missing question parent"
-        print(f"PASS: Jaeger received question/retrieve/generate trace {trace_id}")
+        print(f"PASS: {args.scenario}; Jaeger received {len(spans)} linked spans; trace {trace_id}")
+    else:
+        print(f"PASS: {args.scenario} application assertions; exported trace {trace_id}")
 
 
 if __name__ == "__main__":

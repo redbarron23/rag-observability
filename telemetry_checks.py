@@ -5,12 +5,14 @@ import io
 import json
 import logging
 import os
+import platform
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.metadata import version
 from pathlib import Path
 from urllib.request import Request, urlopen
 from uuid import uuid4
@@ -66,6 +68,9 @@ def verify(spans, scenario):
         if scenario != "no_match":
             assert retrieval["rag.retrieval.hit.1.source"] == "fictional/demo-policy.md"
             assert float(retrieval["rag.retrieval.hit.1.distance"]) == 0.2
+    if scenario in ("slow_retrieval", "slow_generation"):
+        slow = "rag.retrieve" if scenario == "slow_retrieval" else "rag.generate"
+        assert float(attributes(named[slow])["rag.duration_ms"]) >= 150
     error = {"provider_error": "RuntimeError", "retrieval_error": "ValueError"}.get(scenario)
     if error:
         failing = "rag.generate" if scenario == "provider_error" else "rag.retrieve"
@@ -177,8 +182,10 @@ def check():
             assert trace_id and trace_id not in seen
             seen.add(trace_id)
             assert query._trace_provider().force_flush(timeout_millis=5000)
-            verify(wait_for_trace(jaeger, trace_id, names_for(scenario)), scenario)
-            reports.append({"scenario": scenario, "trace_id": trace_id, "passed": True})
+            spans = wait_for_trace(jaeger, trace_id, names_for(scenario))
+            verify(spans, scenario)
+            reports.append({"scenario": scenario, "trace_id": trace_id, "passed": True,
+                            "spans": spans})
 
         for scenario in SCENARIOS:
             collected(scenario)
@@ -264,6 +271,11 @@ builtins.__import__ = missing
             thread.join(timeout=5)
         Path("telemetry-results.json").write_text(json.dumps(
             {"completed": completed, "scenarios": reports,
+             "environment": {"commit": subprocess.run(
+                 ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip(),
+                 "python": platform.python_version(), "sdk": version("opentelemetry-sdk"),
+                 "exporter": version("opentelemetry-exporter-otlp-proto-http"),
+                 "retrieval": "vector", "timing": "measured deterministic stubs; 150ms injected delay"},
              "export_requests": len(payloads), "diagnostic_lines": len(diagnostics.getvalue().splitlines())},
             indent=2) + "\n")
         logging.getLogger().removeHandler(handler)
