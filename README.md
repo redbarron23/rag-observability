@@ -107,66 +107,13 @@ Retrieval and answer quality are evaluated separately.
 
 ## Trace retrieval and generation
 
-Tracing is off by default. Set `OTEL_TRACES_EXPORTER=console` or `otlp` before starting the
-CLI, UI or HTTP service and install the optional packages:
+Optional OpenTelemetry tracing shows the time spent in retrieval and generation, with provider,
+model, token, refusal/fallback and error metadata. It stays off by default and excludes prompts,
+document text and answers from application spans.
 
-```bash
-python -m pip install -r requirements-otel.txt
-```
-
-Each answered question produces this trace (durations are measured by the spans):
-
-```text
-rag.question
-├── rag.retrieve   mode, k, hit count, source paths and cosine distances
-└── rag.generate   provider, requested/served model, tokens, refusal/fallback
-```
-
-No-match questions have no generation span or provider call. Retrieval-only HTTP requests have
-`rag.question` → `rag.retrieve`. Calling the engine's `retrieve()` helper directly produces just
-the retrieval span. Errors record their class and error status; ordinary results, citations and
-exceptions keep the same behavior when tracing is disabled or unavailable.
-
-To view a fictional trace in a local Jaeger collector without a model download or paid API call:
-
-```bash
-docker run --rm -d --name rag-trace-jaeger \
-  -p 127.0.0.1:16686:16686 -p 127.0.0.1:4318:4318 \
-  cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
-export OTEL_TRACES_EXPORTER=otlp
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
-export OTEL_SERVICE_NAME=rag-trace-demo
-export OTEL_TRACES_SAMPLER=always_on
-python trace_demo.py --verify-jaeger http://127.0.0.1:16686
-```
-
-Open <http://127.0.0.1:16686>, select **rag-trace-demo**, and find the question's three spans.
-The script prints the trace ID after verifying that Jaeger received that exact trace and its
-parent/child links. The demo uses deterministic retrieval and provider stubs around the production
-engine methods; its token counts are fictional. CI runs this collector check too. For JSON spans
-on stderr instead, run `OTEL_TRACES_EXPORTER=console python trace_demo.py`.
-
-For real questions, keep these variables set and run `python query.py "your question"`,
-`streamlit run app.py`, or `python api.py` as usual. Generated answers still require the configured
-provider and its normal credentials. `otlp` uses HTTP/protobuf; standard
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, headers and timeout variables are honored by the exporter.
-The per-signal endpoint must include `/v1/traces`; the general endpoint above gets that path
-automatically. Resource attributes and sampling use the SDK's standard OTel variables. The app
-uses its own provider without replacing a host application's global provider. Configuration is
-read once per process; restart after changing it. `OTEL_SDK_DISABLED=true`, `none`, or an unset
-`OTEL_TRACES_EXPORTER` disables this instrumentation.
-
-Opting in exports source paths, distances, model identifiers and usage to your configured
-collector. It does not export questions, document/excerpt text, answers, credentials, or exception
-messages/stacks. Source paths can themselves identify private documents: use a collector approved
-for that metadata and control its access and retention. SDK attribute limits and sampling can
-limit what is retained. Collector/export failures must not prevent questions from completing.
-
-Stop the disposable collector with `docker stop rag-trace-jaeger`; its in-memory traces are lost.
-See [OpenTelemetry Python exporters](https://opentelemetry.io/docs/languages/python/exporters/)
-and [Jaeger's all-in-one setup](https://www.jaegertracing.io/docs/2.22/getting-started/) for deployment
-configuration. Fault-diagnosis walkthroughs remain separate work in
-[#36](https://github.com/redbarron23/rag-observability/issues/36).
+See [Telemetry and Jaeger](docs/telemetry.md) for a plain-English explanation, the local no-paid-LLM
+Jaeger demo, a trace-reading walkthrough, environment settings and troubleshooting. The guide also
+explains what must change before tracing the combined obs-agent Compose stack.
 
 ## Quality and limits
 
