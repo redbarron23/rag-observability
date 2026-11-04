@@ -126,7 +126,8 @@ CLI, UI or API process after changing tracing configuration.
 Export is buffered by the SDK. The verified demo explicitly flushes before querying Jaeger.
 Allow normal shutdown for other processes; force-killing a process can lose buffered spans.
 Telemetry setup, span and export failures must leave the RAG result or original application
-exception intact. Invalid tracing configuration logs a warning and disables tracing until restart.
+exception intact. Unsupported exporter or transport settings disable this instrumentation with a
+warning until restart. Other SDK settings follow the SDK's validation and fallback behavior.
 
 ## Troubleshooting
 
