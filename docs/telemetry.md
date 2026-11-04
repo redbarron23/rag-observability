@@ -117,6 +117,166 @@ dropped; the test does not promise replay of spans produced during an outage. Th
 walkthrough in [#36](https://github.com/redbarron23/rag-observability/issues/36) can reuse these
 controlled scenarios to explain what each result means.
 
+## Hands-on diagnosis lab
+
+**Predict first, run second, explain third.** A trace is a timeline for one operation. A span is
+one timed step; a parent contains its children. Attributes are named facts on those spans.
+Sampling decides which operations are recorded. OTel makes/exports the records; Jaeger stores
+and displays them. The application can work even when no record reaches Jaeger.
+
+Use the optional dependencies and disposable Jaeger setup above. The fixed task is to answer the
+fictional fixture question `SENTINEL PRIVATE QUESTION` from one fictional owner-policy chunk.
+The model, embedding and document content are stubs. These are controlled experiments, not a
+quality or performance benchmark. Before each command, predict the span graph and the result.
+
+```bash
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_TRACES_SAMPLER=always_on
+export OTEL_SERVICE_NAME=rag-trace-demo
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+# Clear conflicting trace-specific endpoints/headers or use a clean shell for the demo.
+python trace_demo.py --scenario success --verify-jaeger http://127.0.0.1:16686
+```
+
+For each row below run the same command, replacing `success` with the scenario name. The script
+asserts the expected application answer, miss, refusal or original error before flushing. Verification
+requires the exact trace ID and expected parent links. `telemetry_checks.py` additionally checks
+all metadata, privacy and fault assertions; its final verdict is `PASS: 19 telemetry scenarios`.
+
+| Scenario / task | Controlled change and expectation | Evidence and next diagnostic action | Feynman answer key |
+| --- | --- | --- | --- |
+| `success`: establish the comparison | One retrieved chunk and normal fictional answer; question with retrieve/generate children; test passes | `hit_count=1`, outcome `generated`, 12 input/4 output tokens; inspect the source before assessing correctness | “We found a document and the model answered. The timeline proves the steps ran, not that the answer is right.” |
+| `slow_retrieval`: locate retrieval delay | Add 150 ms inside retrieval, no delay in provider stub; three spans; test passes | Retrieve `rag.duration_ms >= 150`; compare its width with generation; investigate embedding/search/index load in a real trace | “Finding the document took the extra time. I would check the search step first.” |
+| `slow_generation`: locate provider delay | Add 150 ms only in the provider response; three spans; test passes | Generate duration at least 150 ms; inspect provider latency/retries/token volume next | “The document was found, then the answer step waited. I would check the provider.” |
+| `no_match`: explain missing generation | Return no retrieval hits; two spans, no provider call; test passes | Question outcome `no_match`, generation.called false, hit_count 0; inspect corpus, cutoff and wording | “There was nothing suitable to answer from, so the model was never called.” |
+| `provider_error`: locate a failed model call | Stub raises RuntimeError; three spans; original exception expected, so test passes | Question and generate have ERROR/error.type RuntimeError, no exception message/event; check provider availability/configuration | “Search worked, but the answer step failed. The test passed because it expected that failure and checked the evidence.” |
+| `retrieval_error`: locate failed search | Retrieval stub raises ValueError; question/retrieve only; test passes | Both spans ERROR/error.type ValueError; no generation; inspect index/embedding inputs next | “Search failed before there was evidence to send to a model.” |
+| `refusal`: distinguish decline from missing evidence | Provider reports stop_reason refusal; three spans and generated root outcome; test passes | Generate refused true; inspect stop reason rather than treating generated as a useful answer | “We found evidence and called the model, but it declined.” |
+| `fallback`: inspect reported routing | Stub reports a fallback iteration; three spans; test passes | fallback_used true, requested fictional-demo-model versus served fictional-served-model; inspect routing policy next | “The provider says another model served the answer. That is reported routing, not a guess from latency.” |
+| `unknown_usage`: avoid invented facts | Response omits usage; three spans; test passes | Token counts and fallback absent; inspect provider reporting, do not replace them with zero/false | “We do not know the token use or fallback state from this response.” |
+| `http`: separate retrieval from answering | Real authenticated retrieval-only HTTP request; two spans; test passes | generation.called false, hit_count 1; inspect API contract before expecting a model span | “This caller asked for documents, so no model answer was requested.” |
+
+In Jaeger select **rag-trace-demo**, a recent time range and **Find Traces**, or open the printed
+trace ID at `/trace/<trace-id>`. Expand the question, compare its children, then inspect the named
+attributes in the table. Parent duration already includes child duration: do not sum all three.
+A wide question with short children can include setup or other work outside the child steps.
+
+For **every row**, explain aloud in three sentences: “I predicted __. The trace/result shows __
+because the fields __ say so. I would check __ next.” Use the final column to check your reasoning.
+For the two slow cases predict which child widens *before* running; for either exception predict
+whether generation will exist. Missing spans can reflect sampling or delivery problems too.
+
+### Outage, recovery and invisible traces
+
+Run the complete self-cleaning exercise:
+
+```bash
+python telemetry_checks.py
+```
+
+It creates a uniquely named collector on random loopback ports, uses the same scenario stubs,
+stops only that collector, then restores it. During the outage, successful answers, no-match,
+HTTP retrieval and original exceptions must stay unchanged, each operation under five seconds.
+Exporter waits are bounded separately. A passing `collector_outage` entry means those assertions
+held; it does not mean delivery succeeded. `same_process_recovery` requires a fresh collected trace
+from the original provider instance. Failed batches may be dropped; do not expect replay.
+Cleanup removes only the collector created by this command, including on failure.
+For the Feynman exercise, predict whether stopping Jaeger should break an answer, then explain
+why the two pass flags differ from a successful export. Answer key: RAG remains usable while
+telemetry delivery fails; a new collected trace after restart proves recovery, not replay.
+
+The same command starts fresh processes for unset/none/SDK-disabled tracing and sampling-off.
+Those must return a usable answer with **zero new application export requests**. Console output
+must contain spans without private fixture text; a missing optional exporter must leave the answer
+usable. Trace-specific endpoint/protocol settings must override the general settings.
+
+To try invisible traces yourself, use either command below after predicting the result:
+
+```bash
+OTEL_TRACES_EXPORTER=none python trace_demo.py --scenario success
+OTEL_TRACES_EXPORTER=console OTEL_TRACES_SAMPLER=always_off python trace_demo.py --scenario success
+```
+
+Do not add `--verify-jaeger` to disabled/sampled-out runs. No exported trace is expected; the
+application assertions still pass. For the Feynman exercise, explain why “no trace” alone does
+not prove the app failed. Answer: recording/delivery can be off while the app works; check
+exporter, sampling, process restart and endpoint settings before changing retrieval.
+
+### Deliberately misleading result
+
+Generate `http`, then look for `rag.generate`. It is absent. Predict two possible causes before
+reading on: the request was retrieval-only, or generation was skipped for a retrieval miss.
+Discriminate with hit_count (1 here versus 0), root outcome (matched versus no_match), and the
+actual API task. An incomplete export is another possibility if the expected graph is not complete.
+Also try the wrong Jaeger service or an old time range: the browser will show nothing even when
+exact-ID verification passed. Use the printed ID, then fix the filter; do not diagnose a RAG outage
+from an empty search screen. Explain which observation ruled out each alternative.
+
+### Read the test verdict and retained results
+
+There are three separate questions: **what did RAG do**, **what telemetry arrived**, and **did that
+match the test's expectation**? An intentionally injected provider exception can be an application
+failure, successful error instrumentation, and a passing test at the same time. A normal answer
+with missing required trace metadata should fail the telemetry test. Neither verdict establishes
+answer correctness; retrieval and generation evals cover different evidence.
+
+`telemetry-results.json` retains sanitized span graphs, attributes and measured durations for
+collected scenarios, plus Python/SDK/exporter versions, source commit and retrieval mode. It records
+pass flags and export counts for configuration/outage cases. CI uploads it as **telemetry-results**
+for seven days, including partial progress on failure. No question, document, answer, credential or
+exception text belongs in that artifact. Source paths and configured model/resource metadata are
+permitted. Durations are measured around deterministic in-process stubs, with a 150 ms sleep only
+in the named slow step. The first request initializes tracing; later requests reuse the provider.
+There is no real embedding-model cold/warm benchmark or hosted-provider latency measurement here.
+
+See the representative captured run below for actual observations beside these expectations.
+To finish a manual Jaeger session, run `docker stop rag-trace-jaeger`; in-memory traces disappear.
+Unset the demo's OTel variables or close its shell before using a different data context.
+
+### Representative captured run
+
+[CI run 41909900622](https://github.com/redbarron23/rag-observability/actions/runs/41909900622)
+on 2026-11-04 tested code `a490111367b725c451294e54e9e88f083493039f`, Python **3.11.17**,
+OpenTelemetry SDK **1.45.2**, HTTP exporter **1.45.2**, Jaeger **2.22.0**, retrieval **vector**.
+The log records these package/runtime versions and the following actual output:
+
+```text
+333 passed in 41.64s
+Retrieval results: 33/33 passed
+Held-out retrieval: 8/8 passed
+Offline: 4/4 scenarios passed
+PASS: 19 telemetry scenarios; sanitized telemetry-results.json
+```
+
+The completed collector check establishes the observations below through explicit assertions in
+that revision's `verify()` and `check()`. These are retained assertion results, not invented sample
+traces. Exact per-span timings and IDs are in the run's **telemetry-results** artifact; the table
+retains only the measured lower bounds actually asserted, not a transcription of exact durations.
+The artifact expires after seven days; the output and assertion observations here remain readable.
+Later runs print `OBSERVED` records and `VERSIONS` beside the verdict for easier inspection.
+
+| Case | Expected evidence | Observed in that passing run |
+| --- | --- | --- |
+| Success | Linked question/retrieve/generate; fictional usage | Three linked spans, one hit, 12 input / 4 output tokens, generated outcome |
+| Slow retrieval | Measured retrieval duration at least 150 ms | Bound passed on rag.retrieve; other stub has no injected delay |
+| Slow generation | Measured generation duration at least 150 ms | Bound passed on rag.generate; retrieval has no injected delay |
+| No match | No generation, hit count 0 | Two linked spans; generation.called false |
+| Provider exception | Error on question + generate | RuntimeError class and ERROR status; no exception event/text |
+| Retrieval exception | Error on question + retrieve | ValueError class and ERROR status; no generate span |
+| Refusal | Model called but declines | Three linked spans; refused true |
+| Fallback | Reported routing retained | fallback_used true; configured requested and served models retained |
+| Unknown usage | No fabricated defaults | Input/output token counts and fallback flag absent |
+| HTTP retrieval | No model call | Two linked spans; hit count 1 and generation.called false |
+| Collector outage | RAG operations usable despite delivery failure | Five application checks and bounded waits passed |
+| Same-process recovery | New trace after restart | Original provider instance delivered a fresh validated success trace |
+| Unset/none/SDK-disabled/sampling-off | No new OTLP requests | All four fresh-process checks passed with usable answers |
+| Console/missing exporter/endpoint override | Safe output, graceful missing dependency, correct precedence | All three fresh-process checks passed; privacy checks passed |
+
+For example, the retained successful graph is `rag.question` with sibling `rag.retrieve` and
+`rag.generate` children; the miss graph has only `rag.retrieve`. Both are passing test results,
+while their application outcomes differ. Reproduce the run with the commands above, then compare
+your own artifact fields with the expectations. Different measured stub timings are normal.
+
 ## Read a trace
 
 In Jaeger, select the service, choose a recent time range and **Find Traces**, then open the
