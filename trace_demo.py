@@ -10,7 +10,6 @@ import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import query
@@ -106,7 +105,7 @@ def wait_for_trace(jaeger, trace_id, names):
         try:
             with urlopen(endpoint, timeout=2) as response:
                 result = json.load(response).get("result", {})
-        except (URLError, TimeoutError):
+        except OSError:
             result = {}
         spans = [span for resource in result.get("resourceSpans", [])
                  for scope in resource.get("scopeSpans", []) for span in scope.get("spans", [])]

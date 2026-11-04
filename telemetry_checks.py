@@ -12,7 +12,6 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.error import URLError
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
@@ -127,7 +126,7 @@ def check():
                 with urlopen(request, timeout=1) as response:
                     response.read()
                 self.send_response(200)
-            except (URLError, TimeoutError):
+            except OSError:
                 self.send_response(503)
             self.end_headers()
 
@@ -145,7 +144,7 @@ def check():
             try:
                 with urlopen(jaeger + "/api/v3/services", timeout=1):
                     return jaeger
-            except (URLError, TimeoutError):
+            except OSError:
                 assert time.monotonic() < deadline, "collector not ready"
                 time.sleep(0.2)
 

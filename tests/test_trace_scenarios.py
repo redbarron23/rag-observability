@@ -1,5 +1,6 @@
 """Exercise the collector scenarios and their assertions without Docker/network."""
 
+import json
 from copy import deepcopy
 
 import pytest
@@ -65,3 +66,19 @@ def test_collector_verification_rejects_bad_trace(record, damage):
 def test_diagnostics_privacy_check():
     with pytest.raises(AssertionError):
         private_free("request failed sentinel-private-credential")
+
+
+def test_trace_poll_retries_collector_connection_reset(monkeypatch):
+    import io
+    from unittest.mock import Mock
+
+    import trace_demo
+    payload = {"result": {"resourceSpans": [{"scopeSpans": [{"spans": [
+        {"name": "rag.question"}]}]}]}}
+    response = io.StringIO(json.dumps(payload))
+    read = Mock(side_effect=[ConnectionResetError("starting"), response])
+    monkeypatch.setattr(trace_demo, "urlopen", read)
+    monkeypatch.setattr(trace_demo.time, "sleep", lambda _: None)
+    assert trace_demo.wait_for_trace("http://fictional", "trace", {"rag.question"}) == [
+        {"name": "rag.question"}]
+    assert read.call_count == 2
