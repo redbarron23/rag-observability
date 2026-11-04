@@ -338,21 +338,21 @@ def test_http_extracts_context_only_after_authentication(index, serve, monkeypat
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     monkeypatch.setattr(query, "_trace_provider", lambda: provider)
     data, persist = index
-    server = serve(service_for(persist, data_dir=str(data)), api_key="fixture-key")
+    port = serve(service_for(persist, data_dir=str(data)), api_key="fixture-key")
     try:
         with provider.get_tracer("caller").start_as_current_span("caller") as caller:
             headers = {"Authorization": "Bearer fixture-key"}
             TraceContextTextMapPropagator().inject(headers)
-        assert call(server.server_port, "POST", "/retrieve", {"question": "owner"}, headers)[0] == 200
+        assert call(port, "POST", "/retrieve", {"question": "owner"}, headers)[0] == 200
         collected = exporter.get_finished_spans()
         root = next(s for s in collected if s.name == "rag.question")
         assert root.parent.span_id == caller.get_span_context().span_id
         assert root.context.trace_id == caller.get_span_context().trace_id
         before = len(collected)
         headers.pop("Authorization")
-        assert call(server.server_port, "POST", "/retrieve", {"question": "owner"}, headers)[0] == 401
+        assert call(port, "POST", "/retrieve", {"question": "owner"}, headers)[0] == 401
         assert len(exporter.get_finished_spans()) == before
-        assert call(server.server_port, "POST", "/retrieve", {"question": "owner"},
+        assert call(port, "POST", "/retrieve", {"question": "owner"},
                     {"Authorization": "Bearer fixture-key", "traceparent": "invalid"})[0] == 200
         roots = [s for s in exporter.get_finished_spans() if s.name == "rag.question"]
         assert roots[-1].parent is None and roots[-1].context.trace_id != root.context.trace_id

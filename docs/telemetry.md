@@ -387,6 +387,28 @@ obs-agent-policy: obs.policy.retrieve
     └── obs-rag-retrieval: rag.retrieve
 ```
 
+A captured fictional example is available in
+[obs-agent CI run 41923451106](https://github.com/redbarron23/obs-agent/actions/runs/41923451106).
+Consumer revision `5b5c939f7885a5c1fc5d7ad3f4e55dc6fe7b23b0` called provider revision
+`4efa35728a935acf6d9163e7cffb97c9f8a9ca19`. Its check printed:
+
+```text
+PASS: distributed obs-agent/RAG trace 3aaf48e8c14772d164a7ba18e8b4082c; three linked spans, two services
+```
+
+The assertions verified caller → question → retrieval parent IDs, one trace ID, distinct service
+resources, hybrid retrieval with a tagging-policy source/distance, no generation and no question,
+excerpt or bearer-key text in collected spans. The run then stopped Jaeger, checked normal retrieval
+and authentication, restarted it and verified a new trace
+`59eac3995850005b025a364600701f21`. These IDs identify that disposable collector's in-memory traces;
+they will not exist in your own Jaeger. They document actual delivery/recovery assertions, not
+model quality or a latency benchmark.
+
+Feynman exercise: predict what changes if the caller times out before the provider finishes, then
+explain why the three durations cannot be added. Answer key: the caller can report timeout while
+a provider span finishes later; the shared ID helps correlate them but is not proof of caller
+success. Caller time includes its wait, and provider question time includes retrieval.
+
 Select the caller service in Jaeger or open the exact trace ID printed by its integration check.
 Expand the cross-service child, then inspect the retrieval source and distances. The caller includes
 HTTP waiting/serialization; the provider question includes retrieval. Parent durations already
