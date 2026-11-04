@@ -52,6 +52,8 @@ from query import (
     RETRIEVAL_MODES,
     RAGEngine,
     kept_by_exact_term,
+    trace_attributes,
+    trace_span,
 )
 
 logger = logging.getLogger("rag-api")
@@ -256,6 +258,7 @@ class RetrievalService:
                 "status": "ok" if fresh["status"] == "current" else "degraded",
                 "retrieval": self.retrieval, "corpus": corpus, "freshness": fresh}
 
+    @trace_span("rag.question")
     def retrieve(self, body: object) -> dict:
         question, k, max_distance = validate_request(body)
         with self._lock:
@@ -286,6 +289,8 @@ class RetrievalService:
             # independent of source-file freshness.
             "policy": c.get("policy"),
         } for rank, c in enumerate(chunks, start=1)]
+        trace_attributes({"rag.generation.called": False,
+                          "rag.outcome": "matched" if hits else "no_match"})
         return {
             "contract_version": CONTRACT_VERSION,
             "query": {"question": question, "k": k, "max_distance": max_distance,

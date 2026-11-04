@@ -17,18 +17,123 @@ citations enabled; DeepSeek is prompted to write its citations in the answer.
 
 import argparse
 import json
+import logging
 import math
 import os
 import re
 from collections import Counter
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 
 import chromadb
 from sentence_transformers import SentenceTransformer
 
 import policy
 from ingest import EMBED_MODEL
+
+# Keep this in query.py: consumer images copy this module explicitly.
+_current_trace_span = ContextVar("rag_trace_span", default=None)
+_trace_logger = logging.getLogger("rag.tracing")
+
+
+@lru_cache(maxsize=1)
+def _trace_provider():
+    """Configure a private provider once; leave the host application's provider alone."""
+    exporter = os.environ.get("OTEL_TRACES_EXPORTER", "").strip().lower()
+    if exporter in ("", "none") or os.environ.get("OTEL_SDK_DISABLED", "").lower() == "true":
+        return None
+    try:
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+
+        if exporter == "console":
+            import sys
+            target = ConsoleSpanExporter(out=sys.stderr)
+        elif exporter == "otlp":
+            protocol = os.environ.get("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+                                      os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"))
+            if protocol != "http/protobuf":
+                raise ValueError("Only OTLP HTTP/protobuf is supported")
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+            target = OTLPSpanExporter()
+        else:
+            raise ValueError("Choose console, otlp or none")
+        provider = TracerProvider(resource=Resource.create({
+            "service.name": os.environ.get("OTEL_SERVICE_NAME", "rag-observability"),
+        }))
+        provider.add_span_processor(BatchSpanProcessor(target))
+        return provider
+    except Exception as exc:  # noqa: BLE001 - optional telemetry must not break a question
+        _trace_logger.warning("Tracing disabled (%s); question processing continues.", type(exc).__name__)
+        return None
+
+
+def _tracer():
+    provider = _trace_provider()
+    return provider.get_tracer("rag-observability") if provider is not None else None
+
+
+def trace_attributes(values: dict) -> None:
+    span = _current_trace_span.get()
+    if span is not None:
+        try:
+            span.set_attributes({key: value for key, value in values.items() if value is not None})
+        except Exception:  # noqa: BLE001 - a telemetry failure cannot change application behavior
+            _trace_logger.warning("Could not record trace attributes.")
+
+
+@contextmanager
+def trace_span(name: str):
+    """A span/decorator that never captures question, document, answer or exception text."""
+    try:
+        tracer = _tracer()
+        manager = (tracer.start_as_current_span(name, record_exception=False,
+                   set_status_on_exception=False) if tracer is not None else None)
+        span = manager.__enter__() if manager is not None else None
+    except Exception:  # noqa: BLE001 - setup failures must not prevent the wrapped operation
+        _trace_logger.warning("Could not start trace span.")
+        manager, span = None, None
+    token = _current_trace_span.set(span)
+    started = perf_counter()
+    try:
+        yield span
+    except BaseException as exc:
+        trace_attributes({"error.type": type(exc).__name__})
+        if span is not None:
+            try:
+                from opentelemetry.trace import StatusCode
+                span.set_status(StatusCode.ERROR)
+            except Exception:  # noqa: BLE001 - preserve the original application exception
+                _trace_logger.warning("Could not record trace error status.")
+        raise
+    finally:
+        trace_attributes({"rag.duration_ms": (perf_counter() - started) * 1000})
+        _current_trace_span.reset(token)
+        if manager is not None:
+            try:
+                manager.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001 - exporter/span failures must not mask the result
+                _trace_logger.warning("Could not finish trace span.")
+
+
+def trace_generation(meta: dict) -> None:
+    usage = meta.get("usage") or {}
+    trace_attributes({
+        "gen_ai.provider.name": meta.get("provider"),
+        "gen_ai.request.model": meta.get("requested_model"),
+        "gen_ai.response.model": meta.get("response_model"),
+        "gen_ai.usage.input_tokens": usage.get("input_tokens"),
+        "gen_ai.usage.output_tokens": usage.get("output_tokens"),
+        "rag.generation.stop_reason": meta.get("stop_reason"),
+        "rag.generation.refused": (meta["stop_reason"] == "refusal"
+                                   if meta.get("stop_reason") is not None else None),
+        "rag.generation.fallback_used": meta.get("fallback_used"),
+    })
 
 # ── Defaults ───────────────────────────────────────────────────────────
 
@@ -339,6 +444,7 @@ class RAGEngine:
         self.collection_name = name
         self.embedder = embedder if embedder is not None else SentenceTransformer(EMBED_MODEL)
 
+    @trace_span("rag.retrieve")
     def retrieve(self, query: str, n_results: int = N_RESULTS,
                  max_distance: float | None = MAX_DISTANCE,
                  as_of: date | None = None) -> list[dict]:
@@ -352,6 +458,8 @@ class RAGEngine:
         (default: today, UTC). Applicability is not used to filter or rank:
         superseded and conflicting guidance is labelled, not hidden.
         """
+        trace_attributes({"rag.retrieval.mode": self.retrieval, "rag.retrieval.k": n_results,
+                          "rag.retrieval.max_distance": max_distance})
         query_embedding = self.embedder.encode([query]).tolist()[0]
         if self.retrieval == "hybrid":
             chunks = self._retrieve_hybrid(query, query_embedding, n_results, max_distance)
@@ -362,6 +470,11 @@ class RAGEngine:
         day = as_of or datetime.now(timezone.utc).date()
         for chunk in chunks:
             chunk["policy"] = (statuses or {}).get(chunk["source"]) or policy.unavailable(day)
+        trace_attributes({"rag.retrieval.hit_count": len(chunks),
+                          "rag.outcome": "matched" if chunks else "no_match"})
+        for rank, chunk in enumerate(chunks, start=1):
+            trace_attributes({f"rag.retrieval.hit.{rank}.source": chunk["source"],
+                              f"rag.retrieval.hit.{rank}.distance": chunk["distance"]})
         return chunks
 
     def policy_statuses(self, as_of: date | None = None) -> dict[str, dict] | None:
@@ -504,6 +617,7 @@ class RAGEngine:
         )
         return answer, chunks
 
+    @trace_span("rag.question")
     def answer_with_citations(
         self, query: str, n_results: int = N_RESULTS, verbose: bool = False,
         max_distance: float | None = MAX_DISTANCE,
@@ -530,6 +644,7 @@ class RAGEngine:
         if not chunks:
             self.last_generation = {"llm_called": False,
                                     "reason": "no chunks retrieved, so no provider call"}
+            trace_attributes({"rag.outcome": "no_match", "rag.generation.called": False})
             return "No relevant documents found.", chunks, []
 
         if verbose:
@@ -543,9 +658,12 @@ class RAGEngine:
                 if len(c["text"]) > 400:
                     print("... (truncated)")
 
+        trace_attributes({"rag.generation.called": True})
         answer, citations = self._call_llm(query, chunks)
+        trace_attributes({"rag.outcome": "generated"})
         return answer, chunks, citations
 
+    @trace_span("rag.generate")
     def _call_llm(self, query: str, chunks: list[dict]) -> tuple[str, list[dict] | None]:
         """Send the question and chunks to the configured LLM provider.
 
@@ -566,9 +684,13 @@ class RAGEngine:
                 "response_model": None, "stop_reason": None, "usage": None,
                 "fallback_used": None}
         self.last_generation = meta
+        trace_generation(meta)
 
         if provider == "anthropic":
-            return self._call_anthropic(query, chunks, model, meta)
+            try:
+                return self._call_anthropic(query, chunks, model, meta)
+            finally:
+                trace_generation(meta)
 
         # provider == "deepseek" (OpenAI-compatible): the prompt asks for
         # citations written into the answer text.
@@ -587,6 +709,7 @@ class RAGEngine:
         finish = getattr(response.choices[0], "finish_reason", None)
         meta["stop_reason"] = finish if isinstance(finish, str) else None
         meta["usage"] = openai_usage(response)
+        trace_generation(meta)
         return response.choices[0].message.content, None
 
     @staticmethod

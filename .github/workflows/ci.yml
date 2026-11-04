@@ -43,3 +43,26 @@ jobs:
 
       - name: Adversarial offline checks (separate fixture index, no API key needed)
         run: python adversarial_evals.py
+
+      - name: Start disposable Jaeger collector
+        run: docker run -d --name rag-trace-jaeger -p 127.0.0.1:4318:4318 -p 127.0.0.1:16686:16686 cr.jaegertracing.io/jaegertracing/jaeger:2.22.0
+
+      - name: Export a fictional query and verify its trace in Jaeger
+        env:
+          OTEL_TRACES_EXPORTER: otlp
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+          OTEL_SERVICE_NAME: rag-trace-demo
+          OTEL_TRACES_SAMPLER: always_on
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS --max-time 2 http://127.0.0.1:16686/api/services && break
+            sleep 1
+          done
+          curl -fsS --max-time 2 http://127.0.0.1:16686/api/services
+          python trace_demo.py --verify-jaeger http://127.0.0.1:16686
+
+      - name: Show collector diagnostics and remove it
+        if: always()
+        run: |
+          docker logs rag-trace-jaeger || true
+          docker rm -f rag-trace-jaeger || true
