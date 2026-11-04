@@ -233,6 +233,50 @@ See the representative captured run below for actual observations beside these e
 To finish a manual Jaeger session, run `docker stop rag-trace-jaeger`; in-memory traces disappear.
 Unset the demo's OTel variables or close its shell before using a different data context.
 
+### Representative captured run
+
+[CI run 41909900622](https://github.com/redbarron23/rag-observability/actions/runs/41909900622)
+on 2026-11-04 tested code `a490111367b725c451294e54e9e88f083493039f`, Python **3.11.17**,
+OpenTelemetry SDK **1.45.2**, HTTP exporter **1.45.2**, Jaeger **2.22.0**, retrieval **vector**.
+The log records these package/runtime versions and the following actual output:
+
+```text
+333 passed in 41.64s
+Retrieval results: 33/33 passed
+Held-out retrieval: 8/8 passed
+Offline: 4/4 scenarios passed
+PASS: 19 telemetry scenarios; sanitized telemetry-results.json
+```
+
+The completed collector check establishes the observations below through explicit assertions in
+that revision's `verify()` and `check()`. These are retained assertion results, not invented sample
+traces. Exact per-span timings and IDs are in the run's **telemetry-results** artifact; the table
+retains only the measured lower bounds actually asserted, not a transcription of exact durations.
+The artifact expires after seven days; the output and assertion observations here remain readable.
+Later runs print `OBSERVED` records and `VERSIONS` beside the verdict for easier inspection.
+
+| Case | Expected evidence | Observed in that passing run |
+| --- | --- | --- |
+| Success | Linked question/retrieve/generate; fictional usage | Three linked spans, one hit, 12 input / 4 output tokens, generated outcome |
+| Slow retrieval | Measured retrieval duration at least 150 ms | Bound passed on rag.retrieve; other stub has no injected delay |
+| Slow generation | Measured generation duration at least 150 ms | Bound passed on rag.generate; retrieval has no injected delay |
+| No match | No generation, hit count 0 | Two linked spans; generation.called false |
+| Provider exception | Error on question + generate | RuntimeError class and ERROR status; no exception event/text |
+| Retrieval exception | Error on question + retrieve | ValueError class and ERROR status; no generate span |
+| Refusal | Model called but declines | Three linked spans; refused true |
+| Fallback | Reported routing retained | fallback_used true; configured requested and served models retained |
+| Unknown usage | No fabricated defaults | Input/output token counts and fallback flag absent |
+| HTTP retrieval | No model call | Two linked spans; hit count 1 and generation.called false |
+| Collector outage | RAG operations usable despite delivery failure | Five application checks and bounded waits passed |
+| Same-process recovery | New trace after restart | Original provider instance delivered a fresh validated success trace |
+| Unset/none/SDK-disabled/sampling-off | No new OTLP requests | All four fresh-process checks passed with usable answers |
+| Console/missing exporter/endpoint override | Safe output, graceful missing dependency, correct precedence | All three fresh-process checks passed; privacy checks passed |
+
+For example, the retained successful graph is `rag.question` with sibling `rag.retrieve` and
+`rag.generate` children; the miss graph has only `rag.retrieve`. Both are passing test results,
+while their application outcomes differ. Reproduce the run with the commands above, then compare
+your own artifact fields with the expectations. Different measured stub timings are normal.
+
 ## Read a trace
 
 In Jaeger, select the service, choose a recent time range and **Find Traces**, then open the
