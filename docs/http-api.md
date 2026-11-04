@@ -378,3 +378,14 @@ ordinary workflow.
 
 Answer generation over HTTP (`POST /ask`) is out of scope for this endpoint; use `query.py` or the
 Streamlit app for cited answers generated here.
+
+## Distributed trace headers
+
+When optional telemetry is enabled, authenticated `POST /retrieve` requests can carry W3C
+`traceparent` and `tracestate`. The standard propagator validates them; valid remote context becomes
+the parent of `rag.question`, with `rag.retrieve` below it. Missing or invalid context starts an
+independent trace. Context is isolated and detached per request, including when retrieval fails.
+These headers do not grant access or change the response contract. Baggage, credentials and
+arbitrary request headers are not copied into telemetry; health and rejected authentication do
+not create retrieval spans. See [Telemetry and Jaeger](telemetry.md#incoming-distributed-trace-context)
+for setup, a verified fictional example and privacy/sampling limits.
