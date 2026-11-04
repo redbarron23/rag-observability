@@ -356,13 +356,24 @@ sample collector, run `docker stop rag-trace-jaeger`.
 
 ## Using this with the obs-agent Compose simulation
 
-The base obs-agent Compose simulation may pin an older RAG revision and does not forward the
-OTel variables or install the optional HTTP exporter. Starting Jaeger alone will not enable
-tracing inside that stack. The standalone RAG demo above is the verified setup for this change.
-The opt-in combined setup is tracked in [obs-agent #111](https://github.com/redbarron23/obs-agent/issues/111).
-Tracing the combined stack needs a tested RAG pin, optional packages in its image, and explicit
-collector/environment configuration. A container's `127.0.0.1` refers to its own network namespace,
-so it cannot use the host collector address without suitable networking.
+The base obs-agent Compose stack keeps tracing disabled. Its RAG image includes the optional
+HTTP exporter; the explicit `compose.telemetry.yml` override starts Jaeger and configures OTLP.
+Starting a collector alone does not turn on tracing in an already running process. Follow the
+[obs-agent Compose guide](https://github.com/redbarron23/obs-agent/blob/main/docs/local-rag-stack.md#opt-in-to-jaeger-tracing)
+for startup, smoke checks, outage/recovery and teardown while retaining reviews.
+
+RAG's incoming-context support is merged in [PR #94](https://github.com/redbarron23/rag-observability/pull/94).
+The three-span example requires an obs-agent checkout containing
+[PR #115](https://github.com/redbarron23/obs-agent/pull/115) and the provider pin introduced there.
+Check your revision against that PR before following the example. An older obs-agent checkout
+can show provider retrieval spans without the new caller span.
+
+The combined check uses distinct service names: **obs-agent-policy** for the caller and
+**obs-rag-retrieval** for RAG. Its Jaeger UI binds to host loopback at port 16686; exporters use
+`http://jaeger:4318/v1/traces` inside the Compose network. A container's `127.0.0.1` refers to its
+own network namespace, so do not copy the standalone host endpoint into the container settings.
+Only fictional bundled data is needed; these checks make no generation/provider call. Changing
+an environment variable requires a process/container restart to replace its cached configuration.
 
 ## Incoming distributed trace context
 
