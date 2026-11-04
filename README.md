@@ -105,6 +105,16 @@ enabled, so its citations name the exact cited text and the chunk it came from; 
 them after the answer. DeepSeek is prompted to write a citation for each factual claim.
 Retrieval and answer quality are evaluated separately.
 
+## Trace retrieval and generation
+
+Optional OpenTelemetry tracing shows the time spent in retrieval and generation, with provider,
+model, token, refusal/fallback and error metadata. It stays off by default and excludes prompts,
+document text and answers from application spans.
+
+See [Telemetry and Jaeger](docs/telemetry.md) for a plain-English explanation, the local no-paid-LLM
+Jaeger demo, a trace-reading walkthrough, environment settings and troubleshooting. The guide also
+explains what must change before tracing the combined obs-agent Compose stack.
+
 ## Quality and limits
 
 - The included corpus contains **nine fictional observability documents**, not customer material.
