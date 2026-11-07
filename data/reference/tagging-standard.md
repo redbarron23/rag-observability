@@ -83,7 +83,7 @@ obs-agent infers `team` and `env` for Azure subscriptions and GCP projects and d
 
 ## Label completeness and coverage
 
-Label completeness is the share of subscriptions, projects or resources that carry valid values for the required tags. Coverage is the share of cloud resources that send metrics, logs and traces to the central observability platform, as defined in the coverage targets.
+Label completeness is the share of subscriptions, projects or resources that carry valid values for the required tags. Telemetry coverage is measured separately for metrics, logs and traces using applicable eligible inventory and fresh delivery evidence, as defined in Coverage Targets. Metrics and logs count resource instances; traces count services. Unknown inventory is reported explicitly, not silently excluded.
 
 The two are measured and reported separately, and neither substitutes for the other: a fully tagged resource may send no telemetry, and a resource with full coverage may be missing its `owner` tag.
 
