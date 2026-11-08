@@ -367,6 +367,8 @@ The three-span example requires an obs-agent checkout containing
 [PR #115](https://github.com/redbarron23/obs-agent/pull/115) and the provider pin introduced there.
 Check your revision against that PR before following the example. An older obs-agent checkout
 can show provider retrieval spans without the new caller span.
+When building the RAG image yourself, pin this repo to a release tag (incoming trace context
+first shipped in `v0.1.0`) rather than a branch; see the [changelog](../CHANGELOG.md).
 
 The combined check uses distinct service names: **obs-agent-policy** for the caller and
 **obs-rag-retrieval** for RAG. Its Jaeger UI binds to host loopback at port 16686; exporters use

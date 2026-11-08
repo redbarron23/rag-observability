@@ -260,7 +260,9 @@ bearer auth, healthy and degraded `/health`, and the `invalid_request`, `unautho
 
 ### Version numbers
 
-The contract version is `MAJOR.MINOR.PATCH`, independent of this repo's commits. Every response
+The contract version is `MAJOR.MINOR.PATCH`, independent of this repo's commits and of its
+release version (`vX.Y.Z` tags); [CHANGELOG.md](../CHANGELOG.md#versioning) explains how the two
+relate. Every response
 advertises it twice: the `contract_version` body field (in success, `/health` and error bodies)
 and the `X-RAG-Contract-Version` response header. The body field lets fixture-based tests, which
 often keep only the status and body, see it too.
@@ -305,8 +307,11 @@ that fails its schema) as incompatible, not as no match.
 
 How a consumer such as obs-agent should use this:
 
-1. **Vendor the contract at a pinned revision.** Copy `contract/v1/` from a specific commit or
-   release into the consumer's test fixtures and record that revision. Ordinary consumer tests then
+1. **Vendor the contract at a pinned release.** Copy `contract/v1/` from a release tag (for
+   example `v0.1.0`, see the [releases](https://github.com/redbarron23/rag-observability/releases))
+   into the consumer's test fixtures and record that tag. Prefer a tag over a commit or branch: the
+   [changelog](../CHANGELOG.md) states which contract version each release serves and what
+   changed. If you run this repo's code (for example in a Compose stack), pin the same tag. Ordinary consumer tests then
    need at most `jsonschema`, never chromadb, sentence-transformers or a running RAG service.
 2. **Replay the examples through the real client.** Feed each example's `response.status` and
    `response.body` to the consumer's stub transport and check how the client maps it: hits keep
@@ -321,7 +326,7 @@ How a consumer such as obs-agent should use this:
    set it to `2.0.0`) and confirm the client reports an invalid or incompatible response rather
    than no match. The real-service smoke test (obs-agent#102) adds the same check end to end.
 
-To upgrade within a major: re-vendor `contract/v1/` from the newer revision, adopt the new fields,
+To upgrade within a major: re-vendor `contract/v1/` from the newer release tag, adopt the new fields,
 and raise the pin to the minor that introduced them (for example `1.1`) once every provider you
 call serves it; an older server then fails with `unsupported_contract_version` instead of silently
 omitting the fields. A new major will be published in a new directory (`contract/v2/`) beside the
