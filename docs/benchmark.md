@@ -128,6 +128,10 @@ That edit only changes how a distance is printed in retrieval mode. The loaded c
   suggested running the runbook's query "for project-bravo on 23 April". The decline check flags
   that as an unsupported specific. All the right chunks were retrieved, so this is a generation
   or decline-heuristic issue, not a retrieval one. Retrieval changes would not fix it.
+  [#104](https://github.com/redbarron23/rag-observability/issues/104) found it was the
+  heuristic: the flagged token was the sentence-initial "Running", not the project or date,
+  which come from the question. The check now skips an opening word followed by a determiner.
+  The numbers above are left as measured.
 - **Per call:** about 2,550 input and 400 output tokens, or about $0.009.
 - **Latency:** warm retrieval takes about 7 ms of the roughly 3.6 s an answer takes. Generation
   is over 99% of answer latency.
