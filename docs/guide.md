@@ -406,7 +406,11 @@ The system prompt tells the model to say so when the context can't answer. Six q
 1. The answer declines: `is_decline()` finds a phrase like "does not contain" or "not in the provided context".
 2. No sentence adds a name or number that appears in neither the question nor the indexed corpus (including the retrieved chunks). Negated sentences ("None of them mention AKS") and pointers elsewhere ("Check your paging tool") are skipped, because real declines often describe what the documents do cover.
 
-This catches "The context does not contain a rota. Alice is on call this week.", which `is_decline()` alone accepted. It does not catch a guess made only of ordinary words ("the team lead is on call") or of terms that happen to appear in the corpus, and a correct decline that introduces an unrelated proper noun outside a negated or advice sentence would fail.
+This catches "The context does not contain a rota. Alice is on call this week.", which `is_decline()` alone accepted. A name or number counts as a specific if it contains a digit or a capital letter. A capitalised first word is skipped when the next word is a determiner ("the", "that", "your" and so on), because it then opens a verb phrase and is capitalised only by its position: "Running that query …", "Run the export …". "Alice is on call" doesn't match, so an opening name still counts ([#104](https://github.com/redbarron23/rag-observability/issues/104)).
+
+Details taken from the question are allowed, so a next step that points to a documented procedure with the question's own project and date passes: "Running that query for project-bravo on 23 April should give the cost." The same sentence with a different date ("24 April") or an amount ("about $40") still fails. In the 8 November vector run this sentence failed. The cause was the word "Running", not the project or the date, which were already known from the question. This was a checker bug, so the fix went into the check. The prompt was left alone: the runbook says to take amounts from the billing data, so pointing there is the right next step after a decline.
+
+It does not catch a guess made only of ordinary words ("the team lead is on call"), a lowercase identifier the question doesn't contain ("project-delta"; a test pins this), or terms that happen to appear in the corpus. A correct decline that introduces an unrelated proper noun outside a negated, advice or verb-led sentence would fail.
 
 These answer checks are offline heuristics aimed at specific failure shapes. Passing them is not proof that an answer is factually correct; read the `--verbose` answers when results change.
 
@@ -497,12 +501,17 @@ Its `Commitment tiers` section deliberately disagrees with `programme/COST_SMOOT
 
 | Mode | Cases | Passed |
 |---|---|---|
+| Full, generation with `claude-sonnet-5-5`, `--retrieval vector`, after #104 (8 November 2026) | 38 | 38 (100%) |
+| Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid`, after #104 (8 November 2026) | 38 | 38 (100%) |
+| Held-out full generation with `claude-sonnet-5-5`, both modes, after #104 | 8 | 8 (100%) |
 | Retrieval (document attribution + supporting sections + cutoff), no API key | 33 | 33 (100%) |
 | Full, generation with `claude-sonnet-5-5`, `--retrieval vector` (default), before the cost-runbook cases | 30 | 30 (100%) |
 | Full, generation with `claude-sonnet-5-5`, `--retrieval hybrid`, before the cost-runbook cases | 30 | 30 (100%) |
 | Held-out retrieval, both modes (not counted in the exit code) | 8 | 8 (100%) |
 | Held-out full generation with `claude-sonnet-5-5`, both modes | 8 | 8 (100%) |
 | Full, generation with DeepSeek, before the `exact-*` and `short-*` cases | 14 | 14 (100%) |
+
+**After the #104 decline-check change.** This is a fresh run, not the 8 November [benchmark run](benchmark.md) that exposed the gap: `python evals.py --with-llm -v --retrieval {vector,hybrid}` on 8 November 2026, with `claude-sonnet-5-5` (the model returned `claude-sonnet-5-5`, with no fallback calls). Both modes passed every dimension: sources, facts and citations 32/32, declines 6/6, and held-out 8/8. Each mode made 46 calls. Vector used 117,096 input and 18,513 output tokens, about $0.42 at list price ($2 / $10 per million). Hybrid used 123,562 input and 18,340 output tokens, about $0.43. In both modes the `unanswerable-logging-spend-amount` answer declined and then pointed to the runbook's BigQuery billing export query with the question's project and date: "Running the BigQuery query for `project.id` = project-bravo on 23 April should give the cost." (vector) and "Running that query for project-bravo on 23 April would give the daily spend." (hybrid). The pre-#104 check fails both of these answers on "Running", so this run does exercise the new rule. One sample per mode is not a rate.
 
 Sonnet 5.5 run on 1 November 2026 with the stricter answer checks from issue #29 (fact pairs, cited sections, decline followed by a guess), `python evals.py --with-llm`, top-6, 0.6 cutoff with the exact-term margin. Both modes pass every dimension: sources 25/25, facts 25/25, citations 25/25 (Claude's native citations, checked from the structured citation data) and declines 5/5, and the held-out set passes 8/8. Each mode made 38 calls (30 main plus 8 held-out) of about 2,100 input and 280 output tokens on average (at most 1,211 output tokens), roughly $0.27 per mode at list price.
 
