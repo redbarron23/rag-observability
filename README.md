@@ -136,6 +136,10 @@ covers the opt-in obs-agent Compose setup and [cross-service trace context](docs
 - `--retrieval hybrid` (on `query.py` and `evals.py`) fuses vector ranking with BM25 keyword
   ranking for exact terms such as `0.47%` or `Ops Agent`. Vector-only stays the default; see
   [hybrid retrieval](docs/guide.md#hybrid-retrieval-opt-in) for the eval comparison.
+- `python benchmark.py` compares a BM25 keyword baseline with vector and hybrid retrieval on the
+  same questions, with latency. On 8 November 2026 vector beat keyword, and hybrid matched vector
+  without improving it. See the [retrieval benchmark](docs/benchmark.md). Manual-search
+  comparisons are not yet measured.
 
 ## Documentation
 

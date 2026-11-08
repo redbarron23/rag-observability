@@ -825,7 +825,8 @@ def run_retrieval_evals(engine: RAGEngine, verbose: bool,
             print(f"       Q: {ev['question']}")
             for c in chunks:
                 allowed = " (allowed)" if c["source"] in ev.get("allowed_sources", []) else ""
-                print(f"       Kept: {c['source']} (dist {c['distance']:.3f}){allowed}")
+                dist = f"{c['distance']:.3f}" if c.get("distance") is not None else "n/a"
+                print(f"       Kept: {c['source']} (dist {dist}){allowed}")
 
         if ok:
             passed += 1

@@ -1,0 +1,2698 @@
+{
+  "schema_version": 1,
+  "kind": "rag-observability-eval-run",
+  "run": {
+    "started_at": "2026-11-08T16:21:28.243899+00:00",
+    "finished_at": "2026-11-08T16:24:39.007079+00:00",
+    "duration_seconds": 190.764,
+    "with_llm": true,
+    "include_answers": false,
+    "exit_code": 1,
+    "passed": false
+  },
+  "code": {
+    "git_sha": "4767f8030d222817a996148cb7e732e56c6f918a",
+    "git_dirty": true
+  },
+  "corpus": {
+    "provenance": "available",
+    "corpus_sha256": "d3c05b06c0c6f28544cd8fb2f3bb6694aac9b1566d3ea6dd60f975024cc3130f",
+    "ingested_at": "2026-11-08T16:20:45.338577+00:00",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "chunk_size": 500,
+    "document_count": 9,
+    "collection": "observability-docs-a1d5fe3d033743f78f4b3d3d6c864bc0",
+    "chunk_count": 82
+  },
+  "embedding": {
+    "indexed": {
+      "model": "all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    },
+    "installed": {
+      "model": "all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "sentence_transformers_version": "6.1.0"
+    }
+  },
+  "retrieval": {
+    "mode": "vector",
+    "retrieval_check_k": 6,
+    "generation_k": 6,
+    "max_distance": 0.6,
+    "exact_term_margin": 0.1,
+    "section_max_chunks": 3,
+    "unanswerable_generation_max_distance": null
+  },
+  "generation": {
+    "provider": "anthropic",
+    "requested_model": "claude-sonnet-5-5",
+    "response_models": [
+      "claude-sonnet-5-5"
+    ],
+    "fallback_calls": 0
+  },
+  "results": {
+    "retrieval": {
+      "summary": {
+        "passed": 38,
+        "failed": 0,
+        "total": 38,
+        "provider_errors": 0,
+        "by_dimension": {
+          "sources": {
+            "passed": 32,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "sections": {
+            "passed": 32,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "evidence": {
+            "passed": 32,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "rejection": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          }
+        },
+        "supporting_section_recall": {
+          "total": 37,
+          "at_1": 25,
+          "at_3": 35,
+          "at_6": 37
+        },
+        "exact_term_margin_cases": [
+          "short-ops-agent",
+          "short-last-updated"
+        ]
+      },
+      "cases": [
+        {
+          "id": "coverage-targets-tier1",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.423,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Tier 1",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "coverage-targets-gcp",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.012,
+          "retrieved_sources": [
+            "reference/coverage-targets.md",
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Current status",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "coverage-denominator",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.011,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Coverage calculation",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "coverage-unknown-inventory",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.01,
+          "retrieved_sources": [
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Exclusions and unknown inventory",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "coverage-freshness",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.01,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Evidence and freshness",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "framework-readiness",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "observability-setup-primer.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_framework.md",
+              "section": "Readiness and critical gaps",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "framework-worked-example",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_framework.md",
+              "section": "Worked maturity example",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "framework-scoring",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_framework.md",
+              "section": "Scoring model",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "framework-categories",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_framework.md",
+              "section": "Categories",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "gcp-azure-metrics-differences",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/gcp-azure-metrics-comparison.md",
+              "section": "OpenTelemetry support",
+              "rank": 1
+            },
+            {
+              "source": "reference/gcp-azure-metrics-comparison.md",
+              "section": "Native agents",
+              "rank": 2
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "tagging-standard",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.01,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Required tags",
+              "rank": 2
+            }
+          ],
+          "first_relevant_rank": 2,
+          "exact_term_margin": []
+        },
+        {
+          "id": "tracing-use-cases",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.01,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "architecture/observability_tracing_use_cases.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_tracing_use_cases.md",
+              "section": "Latency investigation",
+              "rank": 2
+            },
+            {
+              "source": "architecture/observability_tracing_use_cases.md",
+              "section": "Dependency mapping",
+              "rank": 5
+            }
+          ],
+          "first_relevant_rank": 2,
+          "exact_term_margin": []
+        },
+        {
+          "id": "data-first-approach",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "data-first-approach.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "data-first-approach.md",
+              "section": "Freshness check",
+              "rank": 3
+            }
+          ],
+          "first_relevant_rank": 3,
+          "exact_term_margin": []
+        },
+        {
+          "id": "observability-setup",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.01,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "observability-setup-primer.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "observability-setup-primer.md",
+              "section": "Prerequisites",
+              "rank": 1
+            },
+            {
+              "source": "observability-setup-primer.md",
+              "section": "Onboarding steps",
+              "rank": 2
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "cost-smoothing",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.011,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "programme/COST_SMOOTHING.md",
+              "section": "Plan",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "exact-gcp-coverage-figure",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "programme/COST_SMOOTHING.md",
+            "reference/coverage-targets.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Current status",
+              "rank": 2
+            }
+          ],
+          "first_relevant_rank": 2,
+          "exact_term_margin": []
+        },
+        {
+          "id": "exact-ops-agent",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/gcp-azure-metrics-comparison.md",
+              "section": "Native agents",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "exact-tag-values",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Allowed values",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "exact-tag-enforcement",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Enforcement",
+              "rank": 5
+            }
+          ],
+          "first_relevant_rank": 5,
+          "exact_term_margin": []
+        },
+        {
+          "id": "exact-basic-logs",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "programme/COST_SMOOTHING.md",
+              "section": "Plan",
+              "rank": 3
+            }
+          ],
+          "first_relevant_rank": 3,
+          "exact_term_margin": []
+        },
+        {
+          "id": "short-ops-agent",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.01,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/gcp-azure-metrics-comparison.md",
+              "section": "Native agents",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": [
+            "reference/gcp-azure-metrics-comparison.md#3",
+            "reference/gcp-azure-metrics-comparison.md#4"
+          ]
+        },
+        {
+          "id": "short-last-updated",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "retrieved_sources": [
+            "data-first-approach.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "data-first-approach.md",
+              "section": "Freshness check",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": [
+            "data-first-approach.md#2"
+          ]
+        },
+        {
+          "id": "obs-agent-suspect-env",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.011,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Allowed values",
+              "rank": 2
+            },
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Environment vocabulary",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "obs-agent-env-aliases",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Environment vocabulary",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "obs-agent-owner-meaning",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.013,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Owner",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "obs-agent-team-cost-centre",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "architecture/observability_tracing_use_cases.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Team vocabulary",
+              "rank": 2
+            }
+          ],
+          "first_relevant_rank": 2,
+          "exact_term_margin": []
+        },
+        {
+          "id": "obs-agent-field-mapping",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Field mapping for obs-agent",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "obs-agent-not-evaluated",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Requirements obs-agent does not evaluate",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "obs-agent-tag-levels",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.008,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Tag levels",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "label-completeness-vs-coverage",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Label completeness and coverage",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "runbook-gcp-logging-investigation",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "runbooks/logging-cost-spike.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "runbooks/logging-cost-spike.md",
+              "section": "Investigation: GCP Cloud Logging",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "conflict-commitment-tier-after-spike",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.009,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "runbooks/logging-cost-spike.md",
+              "section": "Commitment tiers",
+              "rank": 1
+            },
+            {
+              "source": "programme/COST_SMOOTHING.md",
+              "section": "Commitment tiers",
+              "rank": 3
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "unanswerable-oncall-rota",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "kept": []
+        },
+        {
+          "id": "unanswerable-vendor-pricing",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "kept": []
+        },
+        {
+          "id": "unanswerable-k8s-version",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "kept": []
+        },
+        {
+          "id": "unanswerable-outage-root-cause",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "kept": []
+        },
+        {
+          "id": "unanswerable-subscription-owner",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "kept": [
+            {
+              "source": "reference/tagging-standard.md",
+              "distance": 0.5657236576080322,
+              "allowed": true
+            },
+            {
+              "source": "reference/tagging-standard.md",
+              "distance": 0.6599544882636437,
+              "allowed": true
+            }
+          ]
+        },
+        {
+          "id": "unanswerable-logging-spend-amount",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.007,
+          "kept": []
+        }
+      ]
+    },
+    "full": {
+      "summary": {
+        "passed": 37,
+        "failed": 1,
+        "total": 38,
+        "provider_errors": 0,
+        "by_dimension": {
+          "sources": {
+            "passed": 32,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "facts": {
+            "passed": 32,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "citations": {
+            "passed": 32,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "declines": {
+            "passed": 5,
+            "failed": 1,
+            "unevaluated": 0
+          }
+        },
+        "usage": {
+          "provider_calls": 38,
+          "calls_with_usage": 38,
+          "tokens": {
+            "input_tokens": 98167,
+            "output_tokens": 16455,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0
+          }
+        }
+      },
+      "cases": [
+        {
+          "id": "coverage-targets-tier1",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 2.986,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3073,
+              "output_tokens": 179,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "coverage-targets-gcp",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 2.479,
+          "retrieved_sources": [
+            "reference/coverage-targets.md",
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3571,
+              "output_tokens": 295,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "coverage-denominator",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 6.498,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3484,
+              "output_tokens": 989,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "coverage-unknown-inventory",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 4.385,
+          "retrieved_sources": [
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3528,
+              "output_tokens": 669,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "coverage-freshness",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.424,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2469,
+              "output_tokens": 435,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "framework-readiness",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.92,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "observability-setup-primer.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3274,
+              "output_tokens": 613,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "framework-worked-example",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.252,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1346,
+              "output_tokens": 341,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "framework-scoring",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 7.387,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2481,
+              "output_tokens": 999,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "framework-categories",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 2.376,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2394,
+              "output_tokens": 212,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "gcp-azure-metrics-differences",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 4.934,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3010,
+              "output_tokens": 535,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "tagging-standard",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 6.376,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2625,
+              "output_tokens": 1133,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "tracing-use-cases",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.32,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "architecture/observability_tracing_use_cases.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1998,
+              "output_tokens": 292,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "data-first-approach",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 4.77,
+          "retrieved_sources": [
+            "data-first-approach.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1524,
+              "output_tokens": 436,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "observability-setup",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 8.596,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "observability-setup-primer.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3165,
+              "output_tokens": 850,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "cost-smoothing",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 6.658,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2555,
+              "output_tokens": 484,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "exact-gcp-coverage-figure",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 2.663,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "programme/COST_SMOOTHING.md",
+            "reference/coverage-targets.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2260,
+              "output_tokens": 159,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "exact-ops-agent",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 1.266,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1906,
+              "output_tokens": 87,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "exact-tag-values",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 1.8,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3052,
+              "output_tokens": 191,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "exact-tag-enforcement",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 7.13,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2847,
+              "output_tokens": 519,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "exact-basic-logs",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 2.512,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2728,
+              "output_tokens": 232,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "short-ops-agent",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 1.914,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1455,
+              "output_tokens": 88,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "short-last-updated",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 5.003,
+          "retrieved_sources": [
+            "data-first-approach.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1163,
+              "output_tokens": 144,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-suspect-env",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 8.085,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1822,
+              "output_tokens": 1136,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-env-aliases",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 2.722,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1500,
+              "output_tokens": 136,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-owner-meaning",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 4.592,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2096,
+              "output_tokens": 292,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-team-cost-centre",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 6.237,
+          "retrieved_sources": [
+            "architecture/observability_tracing_use_cases.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3319,
+              "output_tokens": 296,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-field-mapping",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 4.353,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2463,
+              "output_tokens": 425,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-not-evaluated",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 4.04,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2562,
+              "output_tokens": 603,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "obs-agent-tag-levels",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.412,
+          "retrieved_sources": [
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2516,
+              "output_tokens": 442,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "label-completeness-vs-coverage",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 6.468,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2485,
+              "output_tokens": 385,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "runbook-gcp-logging-investigation",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 5.87,
+          "retrieved_sources": [
+            "runbooks/logging-cost-spike.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2770,
+              "output_tokens": 965,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "conflict-commitment-tier-after-spike",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.633,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3023,
+              "output_tokens": 497,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "unanswerable-oncall-rota",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 3.054,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "architecture/observability_tracing_use_cases.md",
+            "observability-setup-primer.md",
+            "reference/tagging-standard.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2555,
+              "output_tokens": 334,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "unanswerable-vendor-pricing",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 2.467,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2761,
+              "output_tokens": 132,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "unanswerable-k8s-version",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 2.552,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "reference/coverage-targets.md",
+            "reference/gcp-azure-metrics-comparison.md",
+            "reference/tagging-standard.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2854,
+              "output_tokens": 176,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "unanswerable-outage-root-cause",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 2.021,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3174,
+              "output_tokens": 160,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "unanswerable-subscription-owner",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 3.087,
+          "retrieved_sources": [
+            "reference/coverage-targets.md",
+            "reference/gcp-azure-metrics-comparison.md",
+            "reference/tagging-standard.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3659,
+              "output_tokens": 398,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "unanswerable-logging-spend-amount",
+          "kind": "unanswerable",
+          "status": "fail",
+          "dimensions": {
+            "declines": false
+          },
+          "problems": [
+            "unsupported claim alongside the decline: \"(source: runbooks/logging-cost-spike.md, section 'Investigation: GCP Cloud Logging') Running that query for project-bravo on 23 April should give the cost.\" (Running)"
+          ],
+          "duration_seconds": 2.413,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2700,
+              "output_tokens": 196,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        }
+      ]
+    }
+  },
+  "heldout": {
+    "counts_toward_exit_code": false,
+    "retrieval": {
+      "summary": {
+        "passed": 7,
+        "failed": 1,
+        "total": 8,
+        "provider_errors": 0,
+        "by_dimension": {
+          "sources": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "sections": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "evidence": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "rejection": {
+            "passed": 1,
+            "failed": 1,
+            "unevaluated": 0
+          }
+        },
+        "supporting_section_recall": {
+          "total": 6,
+          "at_1": 5,
+          "at_3": 6,
+          "at_6": 6
+        },
+        "exact_term_margin_cases": []
+      },
+      "cases": [
+        {
+          "id": "heldout-tier2-targets",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.132,
+          "retrieved_sources": [
+            "reference/coverage-targets.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/coverage-targets.md",
+              "section": "Tier 2",
+              "rank": 2
+            }
+          ],
+          "first_relevant_rank": 2,
+          "exact_term_margin": []
+        },
+        {
+          "id": "heldout-alert-noise",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.011,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_framework.md",
+              "section": "Alerts",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "heldout-error-propagation",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.014,
+          "retrieved_sources": [
+            "architecture/observability_tracing_use_cases.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "architecture/observability_tracing_use_cases.md",
+              "section": "Error propagation",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "heldout-commitment-tier",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.017,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "programme/COST_SMOOTHING.md",
+              "section": "Commitment tiers",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "heldout-cost-centre-format",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.017,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md",
+            "reference/tagging-standard.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "reference/tagging-standard.md",
+              "section": "Cost centre",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "heldout-reporting-principle",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "sections": true,
+            "evidence": true
+          },
+          "problems": [],
+          "duration_seconds": 0.017,
+          "retrieved_sources": [
+            "data-first-approach.md",
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "section_ranks": [
+            {
+              "source": "data-first-approach.md",
+              "section": "Principle",
+              "rank": 1
+            }
+          ],
+          "first_relevant_rank": 1,
+          "exact_term_margin": []
+        },
+        {
+          "id": "heldout-unanswerable-escalation-policy",
+          "kind": "unanswerable",
+          "status": "fail",
+          "dimensions": {
+            "rejection": false
+          },
+          "problems": [
+            "kept architecture/observability_framework.md"
+          ],
+          "duration_seconds": 0.015,
+          "kept": [
+            {
+              "source": "architecture/observability_framework.md",
+              "distance": 0.592479407787323,
+              "allowed": false
+            }
+          ]
+        },
+        {
+          "id": "heldout-unanswerable-grafana-version",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "rejection": true
+          },
+          "problems": [],
+          "duration_seconds": 0.041,
+          "kept": []
+        }
+      ]
+    },
+    "full": {
+      "summary": {
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "provider_errors": 0,
+        "by_dimension": {
+          "sources": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "facts": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "citations": {
+            "passed": 6,
+            "failed": 0,
+            "unevaluated": 0
+          },
+          "declines": {
+            "passed": 2,
+            "failed": 0,
+            "unevaluated": 0
+          }
+        },
+        "usage": {
+          "provider_calls": 8,
+          "calls_with_usage": 8,
+          "tokens": {
+            "input_tokens": 18929,
+            "output_tokens": 1804,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0
+          }
+        }
+      },
+      "cases": [
+        {
+          "id": "heldout-tier2-targets",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 6.033,
+          "retrieved_sources": [
+            "reference/coverage-targets.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2619,
+              "output_tokens": 366,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-alert-noise",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.477,
+          "retrieved_sources": [
+            "architecture/observability_framework.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1244,
+              "output_tokens": 133,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-error-propagation",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 1.448,
+          "retrieved_sources": [
+            "architecture/observability_tracing_use_cases.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 1273,
+              "output_tokens": 52,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-commitment-tier",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.504,
+          "retrieved_sources": [
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2728,
+              "output_tokens": 462,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-cost-centre-format",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 1.804,
+          "retrieved_sources": [
+            "reference/gcp-azure-metrics-comparison.md",
+            "reference/tagging-standard.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 3049,
+              "output_tokens": 134,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-reporting-principle",
+          "kind": "answerable",
+          "status": "pass",
+          "dimensions": {
+            "sources": true,
+            "facts": true,
+            "citations": true
+          },
+          "problems": [],
+          "duration_seconds": 3.929,
+          "retrieved_sources": [
+            "data-first-approach.md",
+            "reference/gcp-azure-metrics-comparison.md"
+          ],
+          "native_citations": true,
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2460,
+              "output_tokens": 298,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-unanswerable-escalation-policy",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 2.729,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "programme/COST_SMOOTHING.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2697,
+              "output_tokens": 245,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        },
+        {
+          "id": "heldout-unanswerable-grafana-version",
+          "kind": "unanswerable",
+          "status": "pass",
+          "dimensions": {
+            "declines": true
+          },
+          "problems": [],
+          "duration_seconds": 5.358,
+          "retrieved_sources": [
+            "architecture/observability_framework.md",
+            "programme/COST_SMOOTHING.md",
+            "reference/tagging-standard.md",
+            "runbooks/logging-cost-spike.md"
+          ],
+          "generation": {
+            "llm_called": true,
+            "provider": "anthropic",
+            "requested_model": "claude-sonnet-5-5",
+            "response_model": "claude-sonnet-5-5",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 2859,
+              "output_tokens": 114,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0
+            },
+            "fallback_used": false
+          }
+        }
+      ]
+    }
+  }
+}
