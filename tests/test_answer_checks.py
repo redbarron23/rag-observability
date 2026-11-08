@@ -1,5 +1,6 @@
 """Regression fixtures for the stricter answer checks (issue #29). Offline."""
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -128,6 +129,82 @@ def test_non_decline_and_invented_numbers_fail():
         "The documents don't say. The cluster runs version 1.29.",
         "Which Kubernetes version does the cluster run?", "")
     assert problems and "1.29" in problems[0]
+
+
+# Issue #104. The sentence that failed unanswerable-logging-spend-amount in
+# the 8 November 2026 vector run (docs/benchmarks/generation-vector-2026-11-08.json),
+# verbatim from the recorded problem, including the citation the sentence
+# splitter carried over from the sentence before it. The run did not record
+# the full answer (no --include-answers), so the decline before it is a
+# reconstruction.
+SPEND = next(e for e in evals.UNANSWERABLE_EVALS
+             if e["id"] == "unanswerable-logging-spend-amount")
+SPEND_CORPUS = (Path(__file__).resolve().parent.parent
+                / "data" / "runbooks" / "logging-cost-spike.md").read_text()
+ISSUE_104_SENTENCE = (
+    "(source: runbooks/logging-cost-spike.md, section 'Investigation: GCP Cloud Logging') "
+    "Running that query for project-bravo on 23 April should give the cost."
+)
+ISSUE_104_LEAD = (
+    "The documents don't contain logging spend figures for project-bravo on 23 April. "
+    "The runbook says to take amounts from the billing data and describes filtering the "
+    "billing export by Cloud Logging and grouping cost by project and day."
+)
+
+
+def test_issue_104_next_step_with_question_details_passes():
+    answer = f"{ISSUE_104_LEAD} {ISSUE_104_SENTENCE}"
+    assert decline_problems(answer, SPEND["question"], SPEND_CORPUS) == []
+
+
+def test_issue_104_failed_on_the_opening_word_not_the_question_details():
+    """The old check flagged "Running", capitalised only because it opens the
+    sentence. project-bravo and 23 April were already known from the
+    question. The fix is structural: an opening word followed by a
+    determiner heads a verb phrase, so its capital says nothing."""
+    known = {w.strip(".-").lower()
+             for w in evals.WORD_RE.findall(f"{SPEND['question']} {SPEND_CORPUS}")}
+    assert {"project-bravo", "23", "april"} <= known
+    assert "running" not in known and "running" not in evals.SENTENCE_STARTERS
+    assert ISSUE_104_SENTENCE[evals.verb_opening(ISSUE_104_SENTENCE):].startswith("Running")
+
+
+@pytest.mark.parametrize(("sentence", "invented"), [
+    # An invented amount after the decline.
+    ("Project-bravo spent $412.50 on logging on 23 April.", "412.50"),
+    ("Running that query for project-bravo on 23 April should show about $40.", "40"),
+    # An invented date: the same next step, on a day the question didn't ask about.
+    ("Running that query for project-bravo on 24 April should give the cost.", "24"),
+    # An invented figure in a verb-led sentence.
+    ("Expect the cost to be roughly 3.2 times the usual daily spend.", "3.2"),
+    # A name that opens a sentence is still a name.
+    ("Priya is the FinOps owner for project-bravo.", "Priya"),
+])
+def test_issue_104_invented_specifics_after_a_decline_still_fail(sentence, invented):
+    answer = f"{ISSUE_104_LEAD} {sentence}"
+    problems = decline_problems(answer, SPEND["question"], SPEND_CORPUS)
+    assert len(problems) == 1 and invented in problems[0]
+
+
+def test_lowercase_invented_identifier_is_not_caught():
+    """Documented limitation (docs/guide.md, Dimension 3): a specific counts
+    only if it has a digit or a capital, so a lowercase identifier that is not
+    in the question ("project-delta") passes. This predates #104."""
+    answer = (f"{ISSUE_104_LEAD} Running that query for project-delta on 23 April "
+              "should give the cost.")
+    assert decline_problems(answer, SPEND["question"], SPEND_CORPUS) == []
+
+
+@pytest.mark.parametrize(("sentence", "opens_verb_phrase"), [
+    ("Run the billing export query.", True),
+    ("Filter your export by project.", True),
+    ('"Using the runbook query, group by day.', True),
+    ("Alice is on call this week.", False),
+    ("GCP the platform is covered.", False),  # acronyms never count as verbs
+    ("Datadog Pro costs $15 per host.", False),
+])
+def test_verb_opening(sentence, opens_verb_phrase):
+    assert (evals.verb_opening(sentence) is not None) == opens_verb_phrase
 
 
 def test_full_evals_apply_the_new_checks(monkeypatch, capsys):

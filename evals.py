@@ -619,12 +619,41 @@ SENTENCE_STARTERS = frozenset("""
 """.split())
 
 
+# Closed-class words that follow a verb but almost never follow a name
+# directly: "Running that query ...", "Run the query ...", "Filter your
+# export ...", but not "Alice is on call" (issue #104).
+DETERMINERS = frozenset("""
+    the a an that this these those its their your our my his her each every any some
+""".split())
+# A sentence's first word, after any citation the splitter carried over from
+# the previous sentence and any opening quote, bullet or bracket, plus the word
+# after it. Digits and inner capitals are excluded, so "GCP" or "v2" never match.
+OPENING_WORDS_RE = re.compile(
+    r"(?:\s*\(\s*sources?:[^)]*\))*[\s\"'*(-]*([A-Z][a-z]+)\s+([a-z]+)\b"
+)
+
+
+def verb_opening(sentence: str) -> int | None:
+    """Start of the sentence's first word when it opens a verb phrase, so its
+    capital comes from position, not from being a name: the next word is a
+    determiner ("Running that query for project-bravo ...", issue #104).
+    None otherwise, e.g. for "Alice is on call this week"."""
+    m = OPENING_WORDS_RE.match(sentence)
+    if m and m.group(2) in DETERMINERS:
+        return m.start(1)
+    return None
+
+
 def unsupported_specifics(sentence: str, known: set[str]) -> list[str]:
     """Names and numbers in a sentence that appear in neither the question
-    nor the corpus, e.g. "Alice" or "1.29"."""
+    nor the corpus, e.g. "Alice" or "1.29". A capitalised first word that
+    opens a verb phrase (verb_opening) is not a name; numbers always count."""
     found = []
-    for token in SPECIFIC_RE.findall(sentence):
-        word = token.strip(".-")
+    opening = verb_opening(sentence)
+    for match in SPECIFIC_RE.finditer(sentence):
+        if match.start() == opening:
+            continue
+        word = match.group().strip(".-")
         if word and word.lower() not in known and word.lower() not in SENTENCE_STARTERS:
             found.append(word)
     return found
@@ -639,6 +668,11 @@ def decline_problems(answer: str, question: str, corpus_text: str) -> list[str]:
     paging tool"). This catches "The context does not contain a rota. Alice
     is on call this week." It does not catch a guess built only from ordinary
     words or from terms that happen to occur in the corpus.
+
+    Specifics taken from the question are known, so a next step that reuses
+    them ("Running that query for project-bravo on 23 April should give the
+    cost.") passes, while an invented amount or date in the same sentence
+    still fails (issue #104).
     """
     if not is_decline(answer):
         return ["does not decline"]
