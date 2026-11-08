@@ -69,13 +69,19 @@ between 4 October and 8 November 2026 without a release; PR numbers are given fo
 - **Telemetry.** Optional OpenTelemetry spans for questions, retrieval and generation that exclude
   prompts, document text and answers (#85), real-collector scenario, privacy and recovery checks
   in CI (#92), a hands-on diagnosis lab (#93), and W3C trace context on authenticated API requests
-  (#94, #95).
+  (#94, #95). Optional OpenTelemetry metrics for retrieval latency and chunk dispositions,
+  generation duration and token usage, refusals, fallbacks and errors, enabled separately with
+  `OTEL_METRICS_EXPORTER` (#106).
+- **MCP server.** `mcp_server.py` exposes a read-only `retrieve` tool over stdio with the same
+  inputs, outputs and errors as `POST /retrieve` (contract 1.1.0); optional
+  `requirements-mcp.txt` (#107).
 - **Benchmark.** `benchmark.py` compares BM25 keyword, vector and hybrid retrieval with latency
   (#102).
 - **Corpus.** Fictional sample documents, including a tagging standard aligned with the obs-agent
   vocabulary (#66), a logging-cost spike runbook (#74), vendor source links for Azure metrics
   (#79) and measurable coverage and maturity criteria (#96).
 - **Tooling.** Ruff linting in CI (#16) and Dependabot for pip and GitHub Actions (#15).
+- **Project docs.** `CONTRIBUTING.md`, `SECURITY.md` and this changelog (#105).
 
 ### Changed
 
@@ -93,6 +99,8 @@ between 4 October and 8 November 2026 without a release; PR numbers are given fo
   chunking edge cases (#40).
 - Prompt, README drift and eval checks (#3); the Tier 1 README example (#1).
 - Azure metrics query guidance in the sample corpus (#79).
+- The decline check no longer treats a capitalised verb opening a sentence ("Running that query…")
+  as an invented name (#108).
 
 ### Security
 
