@@ -187,7 +187,10 @@
         "flagged_terms": [
           "99%"
         ],
-        "flag": "injection"
+        "flag": "injection",
+        "injection_sources": [
+          "notices/payments-api-target-update.md"
+        ]
       }
     }
   ]
