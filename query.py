@@ -178,6 +178,186 @@ def trace_generation(meta: dict) -> None:
         "rag.generation.fallback_used": meta.get("fallback_used"),
     })
 
+
+# ── Metrics ────────────────────────────────────────────────────────────
+# Opt-in like tracing, through the standard OTEL_METRICS_EXPORTER switch, and
+# exported with the same OTLP settings. Attributes are a fixed, small set:
+# retrieval mode, outcome, provider, model IDs, token type and error class.
+# Never questions, prompts, document text, answers, source paths or chunk IDs.
+
+# Bucket boundaries advised by the OTel GenAI semantic conventions.
+_DURATION_BUCKETS = (0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12,
+                     10.24, 20.48, 40.96, 81.92)
+_TOKEN_BUCKETS = (1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576,
+                  4194304, 16777216, 67108864)
+
+
+@lru_cache(maxsize=1)
+def _meter_provider():
+    """A private MeterProvider, or None when metrics are off (the default)."""
+    exporter = os.environ.get("OTEL_METRICS_EXPORTER", "").strip().lower()
+    if exporter in ("", "none") or os.environ.get("OTEL_SDK_DISABLED", "").lower() == "true":
+        return None
+    try:
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import (
+            ConsoleMetricExporter,
+            PeriodicExportingMetricReader,
+        )
+        from opentelemetry.sdk.resources import Resource
+
+        if exporter == "console":
+            import sys
+            target = ConsoleMetricExporter(out=sys.stderr)
+        elif exporter == "otlp":
+            protocol = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+                                      os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"))
+            if protocol != "http/protobuf":
+                raise ValueError("Only OTLP HTTP/protobuf is supported")
+            from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+            target = OTLPMetricExporter()
+        else:
+            raise ValueError("Choose console, otlp or none")
+        return MeterProvider(
+            metric_readers=[PeriodicExportingMetricReader(target)],
+            resource=Resource.create({
+                "service.name": os.environ.get("OTEL_SERVICE_NAME", "rag-observability"),
+            }),
+        )
+    except Exception as exc:  # noqa: BLE001 - optional telemetry must not break a question
+        _trace_logger.warning("Metrics disabled (%s); question processing continues.", type(exc).__name__)
+        return None
+
+
+@lru_cache(maxsize=1)
+def _instruments():
+    """The metric instruments, or None when metrics are off."""
+    provider = _meter_provider()
+    if provider is None:
+        return None
+    try:
+        meter = provider.get_meter("rag-observability")
+        return {
+            "operation_duration": meter.create_histogram(
+                "gen_ai.client.operation.duration", unit="s",
+                description="Duration of GenAI provider calls",
+                explicit_bucket_boundaries_advisory=_DURATION_BUCKETS),
+            "token_usage": meter.create_histogram(
+                "gen_ai.client.token.usage", unit="{token}",
+                description="Input and output tokens per provider call, as reported by the provider",
+                explicit_bucket_boundaries_advisory=_TOKEN_BUCKETS),
+            "retrieval_duration": meter.create_histogram(
+                "rag.retrieval.duration", unit="s",
+                description="Duration of retrieval: embedding, search, section completion, policy status",
+                explicit_bucket_boundaries_advisory=_DURATION_BUCKETS),
+            "chunks": meter.create_counter(
+                "rag.retrieval.chunks", unit="{chunk}",
+                description="Retrieved chunks by what the distance cutoff did with them"),
+            "questions": meter.create_counter(
+                "rag.questions", unit="{question}",
+                description="Answered-question operations by outcome"),
+            "refusals": meter.create_counter(
+                "rag.generation.refusals", unit="{refusal}",
+                description="Provider calls that ended in a model refusal"),
+            "fallbacks": meter.create_counter(
+                "rag.generation.fallbacks", unit="{fallback}",
+                description="Provider calls served by a fallback model"),
+            "errors": meter.create_counter(
+                "rag.generation.errors", unit="{error}",
+                description="Provider calls that raised an exception"),
+        }
+    except Exception as exc:  # noqa: BLE001 - optional telemetry must not break a question
+        _trace_logger.warning("Metrics disabled (%s); question processing continues.", type(exc).__name__)
+        return None
+
+
+def _record(name: str, value: float, attributes: dict) -> None:
+    """Add a measurement; a no-op when metrics are off and never raises."""
+    try:
+        instruments = _instruments()
+        if instruments is None:
+            return
+        attributes = {k: v for k, v in attributes.items() if v is not None}
+        instrument = instruments[name]
+        if hasattr(instrument, "record"):
+            instrument.record(value, attributes)
+        else:
+            instrument.add(value, attributes)
+    except Exception:  # noqa: BLE001 - a telemetry failure cannot change application behavior
+        _trace_logger.warning("Could not record metric.")
+
+
+# Dropped-chunk count for the retrieval in progress; the ranking helpers add to it.
+_retrieval_dropped = ContextVar("rag_retrieval_dropped", default=None)
+
+
+def _note_dropped(count: int) -> None:
+    holder = _retrieval_dropped.get()
+    if holder is not None:
+        holder[0] += count
+
+
+@contextmanager
+def _retrieval_metrics(mode: str, max_distance: float | None):
+    """Time one retrieval and count its chunks; call the yielded function with the result."""
+    started = perf_counter()
+    holder = [0]
+    token = _retrieval_dropped.set(holder)
+    result: list[list[dict]] = []
+    try:
+        yield result.append
+    except BaseException as exc:
+        _record("retrieval_duration", perf_counter() - started,
+                {"rag.retrieval.mode": mode, "error.type": type(exc).__name__})
+        raise
+    else:
+        chunks = result[0] if result else []
+        _record("retrieval_duration", perf_counter() - started,
+                {"rag.retrieval.mode": mode, "rag.outcome": "matched" if chunks else "no_match"})
+        counts = Counter(
+            "section_expanded" if "expanded_from" in c
+            else "kept_exact_term" if kept_by_exact_term(c, max_distance)
+            else "kept"
+            for c in chunks
+        )
+        counts["dropped"] = holder[0]
+        for disposition, count in counts.items():
+            if count:
+                _record("chunks", count, {"rag.retrieval.mode": mode,
+                                          "rag.chunk.disposition": disposition})
+    finally:
+        _retrieval_dropped.reset(token)
+
+
+@contextmanager
+def _generation_metrics(meta: dict):
+    """Time one provider call and record its tokens, refusal, fallback or error from meta."""
+    started = perf_counter()
+    error = None
+    try:
+        yield
+    except BaseException as exc:
+        error = type(exc).__name__
+        raise
+    finally:
+        base = {"gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": meta.get("provider"),
+                "gen_ai.request.model": meta.get("requested_model"),
+                "gen_ai.response.model": meta.get("response_model")}
+        _record("operation_duration", perf_counter() - started, {**base, "error.type": error})
+        if error is not None:
+            _record("errors", 1, {**base, "error.type": error})
+        else:
+            usage = meta.get("usage") or {}
+            for token_type in ("input", "output"):
+                count = usage.get(f"{token_type}_tokens")
+                if isinstance(count, int):
+                    _record("token_usage", count, {**base, "gen_ai.token.type": token_type})
+            if meta.get("stop_reason") == "refusal":
+                _record("refusals", 1, base)
+            if meta.get("fallback_used"):
+                _record("fallbacks", 1, base)
+
 # ── Defaults ───────────────────────────────────────────────────────────
 
 PERSIST_DIR = "chroma_db"
@@ -503,22 +683,24 @@ class RAGEngine:
         """
         trace_attributes({"rag.retrieval.mode": self.retrieval, "rag.retrieval.k": n_results,
                           "rag.retrieval.max_distance": max_distance})
-        query_embedding = self.embedder.encode([query]).tolist()[0]
-        if self.retrieval == "hybrid":
-            chunks = self._retrieve_hybrid(query, query_embedding, n_results, max_distance)
-        else:
-            chunks = self._retrieve_vector(query, query_embedding, n_results, max_distance)
-        chunks = self._complete_sections(query_embedding, chunks)
-        statuses = self.policy_statuses(as_of)
-        day = as_of or datetime.now(timezone.utc).date()
-        for chunk in chunks:
-            chunk["policy"] = (statuses or {}).get(chunk["source"]) or policy.unavailable(day)
-        trace_attributes({"rag.retrieval.hit_count": len(chunks),
-                          "rag.outcome": "matched" if chunks else "no_match"})
-        for rank, chunk in enumerate(chunks, start=1):
-            trace_attributes({f"rag.retrieval.hit.{rank}.source": chunk["source"],
-                              f"rag.retrieval.hit.{rank}.distance": chunk["distance"]})
-        return chunks
+        with _retrieval_metrics(self.retrieval, max_distance) as record:
+            query_embedding = self.embedder.encode([query]).tolist()[0]
+            if self.retrieval == "hybrid":
+                chunks = self._retrieve_hybrid(query, query_embedding, n_results, max_distance)
+            else:
+                chunks = self._retrieve_vector(query, query_embedding, n_results, max_distance)
+            chunks = self._complete_sections(query_embedding, chunks)
+            statuses = self.policy_statuses(as_of)
+            day = as_of or datetime.now(timezone.utc).date()
+            for chunk in chunks:
+                chunk["policy"] = (statuses or {}).get(chunk["source"]) or policy.unavailable(day)
+            trace_attributes({"rag.retrieval.hit_count": len(chunks),
+                              "rag.outcome": "matched" if chunks else "no_match"})
+            for rank, chunk in enumerate(chunks, start=1):
+                trace_attributes({f"rag.retrieval.hit.{rank}.source": chunk["source"],
+                                  f"rag.retrieval.hit.{rank}.distance": chunk["distance"]})
+            record(chunks)
+            return chunks
 
     def policy_statuses(self, as_of: date | None = None) -> dict[str, dict] | None:
         """Every indexed document's policy status on as_of, or None when the
@@ -554,8 +736,10 @@ class RAGEngine:
                 "distance": results["distances"][0][i] if "distances" in results else None,
             })
         terms = exact_terms(query)
-        return [c for c in chunks
+        kept = [c for c in chunks
                 if within_cutoff(c["distance"], max_distance, terms, c["text"])]
+        _note_dropped(len(chunks) - len(kept))
+        return kept
 
     def _complete_sections(self, query_embedding: list[float],
                            chunks: list[dict]) -> list[dict]:
@@ -635,8 +819,10 @@ class RAGEngine:
 
         terms = exact_terms(query)
         chunks = []
-        for i in reciprocal_rank_fusion([vector_ranking, keyword_ranking]):
+        for position, i in enumerate(reciprocal_rank_fusion([vector_ranking, keyword_ranking])):
             if not within_cutoff(distances[i], max_distance, terms, corpus["documents"][i]):
+                if position < n_results:  # count drops among the top k, as in vector mode
+                    _note_dropped(1)
                 continue
             meta = corpus["metadatas"][i] or {}
             chunks.append({
@@ -672,6 +858,20 @@ class RAGEngine:
         when the provider has no native citations (DeepSeek); the answer text
         then carries the citations the model wrote.
         """
+        mode = getattr(self, "retrieval", None)
+        try:
+            result = self._answer_with_citations(query, n_results, verbose, max_distance)
+        except BaseException as exc:
+            _record("questions", 1, {"rag.retrieval.mode": mode, "rag.outcome": "error",
+                                     "error.type": type(exc).__name__})
+            raise
+        outcome = "generated" if result[1] else "no_match"  # no chunks: no provider call
+        _record("questions", 1, {"rag.retrieval.mode": mode, "rag.outcome": outcome})
+        return result
+
+    def _answer_with_citations(self, query: str, n_results: int, verbose: bool,
+                               max_distance: float | None):
+        """answer_with_citations() without the question counter."""
         self.last_generation = None
         chunks = self.retrieve(query, n_results=n_results, max_distance=max_distance)
 
@@ -728,7 +928,12 @@ class RAGEngine:
                 "fallback_used": None}
         self.last_generation = meta
         trace_generation(meta)
+        with _generation_metrics(meta):
+            return self._call_provider(provider, model, query, chunks, meta)
 
+    def _call_provider(self, provider: str, model: str, query: str, chunks: list[dict],
+                       meta: dict) -> tuple[str, list[dict] | None]:
+        """The provider request itself; fills meta with what the provider reported."""
         if provider == "anthropic":
             try:
                 return self._call_anthropic(query, chunks, model, meta)
