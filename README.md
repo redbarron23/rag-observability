@@ -109,7 +109,9 @@ Retrieval and answer quality are evaluated separately.
 
 Optional OpenTelemetry tracing shows the time spent in retrieval and generation, with provider,
 model, token, refusal/fallback and error metadata. It stays off by default and excludes prompts,
-document text and answers from application spans.
+document text and answers from application spans. Optional [metrics](docs/telemetry.md#metrics)
+(latency, token usage, refusals, fallbacks, errors and chunks kept or dropped) use the same
+OTLP settings and are also off by default.
 
 See [Telemetry and Jaeger](docs/telemetry.md#hands-on-diagnosis-lab) for the hands-on diagnosis lab, Feynman exercises, and the local no-paid-LLM
 Jaeger demo, a trace-reading walkthrough, environment settings and troubleshooting. The guide also

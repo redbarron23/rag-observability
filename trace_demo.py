@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Export a fictional question with deterministic retrieval/provider stubs; no model or API key.
 
-Set OTEL_TRACES_EXPORTER=console or otlp. Optional --verify-jaeger polls the local query API.
+Set OTEL_TRACES_EXPORTER and/or OTEL_METRICS_EXPORTER to console or otlp. Optional
+--verify-jaeger polls the local query API (Jaeger stores traces, not metrics).
 """
 
 import argparse
@@ -131,6 +132,10 @@ def main():
     parser.add_argument("--scenario", choices=SCENARIOS, default="success")
     args = parser.parse_args()
     trace_id = run_scenario(args.scenario)
+    meters = query._meter_provider()
+    if meters is not None:
+        assert meters.force_flush(timeout_millis=5000), "Metric export did not flush within five seconds"
+        print(f"PASS: {args.scenario} metrics exported")
     provider = query._trace_provider()
     if provider is None:
         assert not args.verify_jaeger, "Collector verification needs enabled tracing"

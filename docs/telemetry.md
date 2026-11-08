@@ -104,8 +104,10 @@ call is made. Ordinary unit tests remain independent of Docker. CI runs this com
 | Collector restarted | Same process/provider exports a fresh, distinct trace |
 | Tracing unset/none, SDK disabled, sampling off | Usable answer and no OTLP application export requests |
 | Console, missing optional exporter, trace endpoint override | Safe console spans; missing dependency leaves answers working; trace endpoint/protocol override wins |
+| Metrics over OTLP | Every instrument in [Metrics](#metrics) arrives with its unit and only its permitted attribute keys; no sentinel text, source path or chunk ID; metrics unset/none/SDK-disabled send no metric requests |
 
-A local recording proxy forwards real HTTP/protobuf exports to Jaeger. The assertions inspect
+A local recording proxy forwards real HTTP/protobuf trace exports to Jaeger. Jaeger does not
+store metrics, so the proxy decodes and acknowledges metric exports itself. The assertions inspect
 decoded OTLP payloads (including events), collected trace graphs, captured SDK logs and child
 process diagnostics for sentinel question/document/answer/exception text and credentials. The
 credential header is checked at the proxy but never written to the report. Source paths and
@@ -302,6 +304,62 @@ Child durations are included in the question duration: do not add the root and i
 as if they were separate work. An HTTP question can also include index loading and freshness
 checks before retrieval. Direct calls to the retrieval helper have no question wrapper.
 
+## Metrics
+
+Traces explain one question; metrics count and time every question so you can chart and alert on
+them. Metrics are off by default. Turn them on with `OTEL_METRICS_EXPORTER=console` (JSON on
+stderr) or `otlp`, independently of `OTEL_TRACES_EXPORTER`. They use the same
+`OTEL_EXPORTER_OTLP_*` endpoint, header, timeout and protocol settings as traces (per-signal
+`..._METRICS_...` variables override the general ones; the per-signal endpoint must include
+`/v1/metrics`). `OTEL_SDK_DISABLED=true` turns both off. As with tracing, the app uses its own
+MeterProvider and leaves a host application's global provider alone.
+
+Metrics have their own switch because the local Jaeger collector accepts traces only: pointing
+metrics at it would only produce export errors. Send them to a collector with a metrics pipeline
+(for example an OpenTelemetry Collector in front of Prometheus).
+
+Try them with the fictional demo; no model download or paid API call:
+
+```bash
+OTEL_METRICS_EXPORTER=console python trace_demo.py --scenario success
+```
+
+The SDK exports every 60 seconds (`OTEL_METRIC_EXPORT_INTERVAL`, in milliseconds) and once more on
+normal shutdown; the demo flushes before it exits. Temporality is cumulative (the SDK default).
+
+| Metric | Type | Unit | Attributes | Recorded |
+| --- | --- | --- | --- | --- |
+| `gen_ai.client.operation.duration` | Histogram | `s` | `gen_ai.operation.name` (`chat`), `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `error.type` | Each provider call, including failed ones |
+| `gen_ai.client.token.usage` | Histogram | `{token}` | the above without `error.type`, plus `gen_ai.token.type` (`input`, `output`) | Each successful call whose provider reported usage |
+| `rag.retrieval.duration` | Histogram | `s` | `rag.retrieval.mode` (`vector`, `hybrid`), `rag.outcome` (`matched`, `no_match`), `error.type` | Each retrieval, including retrieval-only HTTP requests |
+| `rag.retrieval.chunks` | Counter | `{chunk}` | `rag.retrieval.mode`, `rag.chunk.disposition` (`kept`, `kept_exact_term`, `section_expanded`, `dropped`) | Chunks per retrieval by what the distance cutoff did |
+| `rag.questions` | Counter | `{question}` | `rag.retrieval.mode`, `rag.outcome` (`generated`, `no_match`, `error`), `error.type` | Each answered-question call (CLI, UI, evals); not retrieval-only HTTP requests |
+| `rag.generation.refusals` | Counter | `{refusal}` | as `gen_ai.client.token.usage`, without `gen_ai.token.type` | Provider calls that stopped with a refusal |
+| `rag.generation.fallbacks` | Counter | `{fallback}` | as `rag.generation.refusals` | Calls the provider reports were served by a fallback model |
+| `rag.generation.errors` | Counter | `{error}` | as `rag.generation.refusals`, plus `error.type` | Provider calls that raised; the response model is usually absent |
+
+The two `gen_ai.client.*` metrics follow the
+[OTel GenAI metrics semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/),
+including their advised histogram buckets. The `rag.*` metrics are specific to this project; the
+GenAI conventions have no refusal, fallback or retrieval instruments. Durations are seconds, not
+the milliseconds used by the `rag.duration_ms` span attribute.
+
+Chunk dispositions: `kept` is within `--max-distance`; `kept_exact_term` is beyond it but within
+the exact-term margin and shares an exact term with the question; `section_expanded` was appended
+from a split section; `dropped` counts the top-k ranked candidates the cutoff removed. Hybrid
+retrieval keeps looking past the top k to fill k results, but only drops among the top k count,
+so the vector and hybrid drop rates compare like for like. A refusal is `generated` in
+`rag.questions` (the model was called) and is counted in `rag.generation.refusals`; a no-match
+question is the application's own decline and never calls a provider. Missing token usage or
+fallback information records nothing rather than zero or false.
+
+Metric attributes are a fixed, small set. They never include questions, prompts, document or
+excerpt text, answers, source paths, chunk IDs, distances or exception messages; `error.type` is
+an exception class name. Model identifiers come from configuration and the provider response.
+Tests in `tests/test_metrics.py` use an in-memory reader to check names, units, attributes,
+privacy and that nothing is created when metrics are off; `telemetry_checks.py` checks the same
+over a real OTLP export.
+
 ## Configuration
 
 Set these in the environment that runs RAG, before its first question. Restart an existing
@@ -310,10 +368,13 @@ CLI, UI or API process after changing tracing configuration.
 | Variable | Purpose |
 | --- | --- |
 | `OTEL_TRACES_EXPORTER` | `console` for JSON on stderr; `otlp` for the collector; unset or `none` disables tracing |
-| `OTEL_SDK_DISABLED` | `true` disables this instrumentation even when an exporter is selected |
+| `OTEL_METRICS_EXPORTER` | `console` for JSON on stderr; `otlp` for the collector; unset or `none` disables metrics. Independent of the traces setting |
+| `OTEL_SDK_DISABLED` | `true` disables tracing and metrics even when an exporter is selected |
 | `OTEL_SERVICE_NAME` | Service shown in Jaeger; defaults to `rag-observability` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | General collector base URL, e.g. `http://127.0.0.1:4318`; the SDK appends `/v1/traces` |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Trace-specific URL, including `/v1/traces`; overrides the general endpoint |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `..._METRICS_PROTOCOL`, `..._METRICS_HEADERS`, `..._METRICS_TIMEOUT` | Metric-specific overrides of the general OTLP settings; the endpoint includes `/v1/metrics` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds between metric exports; SDK default 60000 |
 | `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | Only `http/protobuf` is supported; the trace-specific setting takes precedence |
 | `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Collector authentication headers, interpreted by the SDK; keep credentials out of committed commands/files |
 | `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | Exporter timeout settings, interpreted by the Python SDK |
@@ -337,6 +398,8 @@ warning until restart. Other SDK settings follow the SDK's validation and fallba
 | Endpoint returns 404 | Check general versus trace-specific endpoint paths; Jaeger query verification uses `/api/v3/services` and `/api/v3/traces/<trace-id>` |
 | No `rag.generate` span | Retrieval-only API requests and no-match results intentionally do not call a provider |
 | Missing token counts or fallback flag | The provider did not report them; inspect model and stop-reason fields rather than guessing usage |
+| `Metrics disabled (ImportError)` or `(ValueError)` | As for tracing: install `requirements-otel.txt`; choose `console`, `otlp` or `none` with `http/protobuf` |
+| Metric export errors with Jaeger | Jaeger does not accept metrics; unset `OTEL_METRICS_EXPORTER` or point it at a collector with a metrics pipeline |
 | Traces disappeared after stopping Jaeger | This disposable all-in-one collector uses in-memory storage; regenerate the demo trace |
 
 Check collector readiness with:
@@ -358,7 +421,8 @@ sample collector, run `docker stop rag-trace-jaeger`.
 
 The base obs-agent Compose stack keeps tracing disabled. Its RAG image includes the optional
 HTTP exporter; the explicit `compose.telemetry.yml` override starts Jaeger and configures OTLP.
-Starting a collector alone does not turn on tracing in an already running process. Follow the
+Starting a collector alone does not turn on tracing in an already running process. That stack has
+no metrics backend yet (Jaeger stores traces only), so leave `OTEL_METRICS_EXPORTER` unset there. Follow the
 [obs-agent Compose guide](https://github.com/redbarron23/obs-agent/blob/main/docs/local-rag-stack.md#opt-in-to-jaeger-tracing)
 for startup, smoke checks, outage/recovery and teardown while retaining reviews.
 

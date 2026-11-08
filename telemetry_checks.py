@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from google.protobuf.json_format import MessageToDict
+from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import ExportMetricsServiceRequest
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 import query
@@ -33,6 +34,20 @@ from trace_demo import (
 )
 
 SECRETS = (QUESTION, DOCUMENT, ANSWER, EXCEPTION, CREDENTIAL)
+# Metric attributes are a fixed set; source paths and chunk IDs are excluded too.
+METRIC_PRIVATE = ("fictional/demo-policy.md", "fictional-chunk")
+GENERATION_KEYS = {"gen_ai.operation.name", "gen_ai.provider.name", "gen_ai.request.model",
+                   "gen_ai.response.model", "error.type"}
+METRICS = {  # name -> (unit, permitted attribute keys)
+    "gen_ai.client.operation.duration": ("s", GENERATION_KEYS),
+    "gen_ai.client.token.usage": ("{token}", GENERATION_KEYS | {"gen_ai.token.type"}),
+    "rag.retrieval.duration": ("s", {"rag.retrieval.mode", "rag.outcome", "error.type"}),
+    "rag.retrieval.chunks": ("{chunk}", {"rag.retrieval.mode", "rag.chunk.disposition"}),
+    "rag.questions": ("{question}", {"rag.retrieval.mode", "rag.outcome", "error.type"}),
+    "rag.generation.refusals": ("{refusal}", GENERATION_KEYS),
+    "rag.generation.fallbacks": ("{fallback}", GENERATION_KEYS),
+    "rag.generation.errors": ("{error}", GENERATION_KEYS),
+}
 
 
 def private_free(value):
@@ -101,6 +116,32 @@ def verify(spans, scenario):
                 assert gen["rag.generation.fallback_used"] is (scenario == "fallback")
 
 
+def verify_metrics(payloads):
+    """Every instrument arrives over OTLP with its unit and only permitted attribute keys."""
+    exported = json.dumps(payloads)
+    private_free(exported)
+    assert all(value not in exported for value in METRIC_PRIVATE), "high-cardinality metric attribute"
+    seen = {}
+    for payload in payloads:
+        for resource in payload.get("resourceMetrics", []):
+            for scope in resource.get("scopeMetrics", []):
+                if scope.get("scope", {}).get("name") != "rag-observability":
+                    continue
+                for metric in scope.get("metrics", []):
+                    unit, keys = METRICS[metric["name"]]
+                    assert metric.get("unit") == unit, metric["name"]
+                    data = metric.get("histogram") or metric.get("sum")
+                    for point in data["dataPoints"]:
+                        attrs = attributes(point)
+                        assert set(attrs) <= keys, (metric["name"], sorted(attrs))
+                        seen.setdefault(metric["name"], []).append(attrs)
+    assert set(seen) == set(METRICS), f"missing metrics: {sorted(set(METRICS) - set(seen))}"
+    assert {a["rag.outcome"] for a in seen["rag.questions"]} == {"generated", "no_match", "error"}
+    assert {a["gen_ai.token.type"] for a in seen["gen_ai.client.token.usage"]} == {"input", "output"}
+    assert {a["error.type"] for a in seen["rag.generation.errors"]} == {"RuntimeError"}
+    return sorted(seen)
+
+
 def docker(*args):
     return subprocess.run(["docker", *args], check=True, capture_output=True,
                           text=True, timeout=60).stdout.strip()
@@ -109,19 +150,27 @@ def docker(*args):
 def check():
     original_env = os.environ.copy()
     name = "rag-telemetry-" + uuid4().hex[:12]
-    payloads, reports = [], []
+    payloads, metric_payloads, reports = [], [], []
     diagnostics = io.StringIO()
     handler = logging.StreamHandler(diagnostics)
     logging.getLogger().addHandler(handler)
-    provider = proxy = None
+    provider = meters = proxy = None
     completed = False
     target = [None]
 
     class RecordingProxy(BaseHTTPRequestHandler):
         def do_POST(self):
-            assert self.path == "/v1/traces"
+            assert self.path in ("/v1/traces", "/v1/metrics")
             assert self.headers.get("Authorization") == "Bearer " + CREDENTIAL
             body = self.rfile.read(int(self.headers["Content-Length"]))
+            if self.path == "/v1/metrics":
+                # Jaeger stores traces only: record and acknowledge metrics here.
+                decoded = MessageToDict(ExportMetricsServiceRequest.FromString(body))
+                private_free(json.dumps(decoded))
+                metric_payloads.append(decoded)
+                self.send_response(200)
+                self.end_headers()
+                return
             decoded = MessageToDict(ExportTraceServiceRequest.FromString(body))
             private_free(json.dumps(decoded))
             payloads.append(decoded)
@@ -170,9 +219,14 @@ def check():
             "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{proxy.server_port}",
             "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "Authorization=Bearer%20" + CREDENTIAL,
             "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "1",
+            "OTEL_METRICS_EXPORTER": "otlp",
+            "OTEL_EXPORTER_OTLP_METRICS_HEADERS": "Authorization=Bearer%20" + CREDENTIAL,
+            "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT": "1",
             "OTEL_BSP_EXPORT_TIMEOUT": "2000",
         })
         query._trace_provider.cache_clear()
+        query._meter_provider.cache_clear()
+        query._instruments.cache_clear()
         seen = set()
 
         def collected(scenario):
@@ -192,6 +246,11 @@ def check():
 
         for scenario in SCENARIOS:
             collected(scenario)
+        meters = query._meter_provider()
+        assert meters is not None and meters.force_flush(timeout_millis=5000)
+        names = verify_metrics(metric_payloads)
+        print("OBSERVED " + json.dumps({"scenario": "metrics", "metrics": names}))
+        reports.append({"scenario": "metrics", "passed": True, "metrics": names})
         provider = query._trace_provider()
         docker("stop", "-t", "1", name)
         for scenario in ("success", "no_match", "provider_error", "retrieval_error", "http"):
@@ -211,10 +270,15 @@ def check():
             for variant in ("unset", "none", "sdk_disabled", "sampling_off", "console",
                             "missing_exporter", "trace_endpoint"):
                 env = os.environ.copy()
+                # Metrics stay selected only where the variant must also switch them off.
+                if variant != "sdk_disabled":
+                    env.pop("OTEL_METRICS_EXPORTER")
                 if variant == "unset":
                     env.pop("OTEL_TRACES_EXPORTER")
                 elif variant in ("none", "console"):
                     env["OTEL_TRACES_EXPORTER"] = variant
+                    if variant == "none":
+                        env["OTEL_METRICS_EXPORTER"] = "none"
                 elif variant == "sdk_disabled":
                     env["OTEL_SDK_DISABLED"] = "true"
                 elif variant == "sampling_off":
@@ -245,12 +309,13 @@ def missing(name, *args, **kwargs):
     return original_import(name, *args, **kwargs)
 builtins.__import__ = missing
 ''' + code
-                before = len(payloads)
+                before, metrics_before = len(payloads), len(metric_payloads)
                 result = subprocess.run([sys.executable, "-c", code, report], env=env,
                                         capture_output=True, text=True, timeout=60)
                 private_free(result.stdout + result.stderr)
                 assert result.returncode == 0, f"configuration failed: {variant}"
                 saved = json.loads(Path(report).read_text())
+                assert len(metric_payloads) == metrics_before, f"unexpected metric export: {variant}"
                 if variant == "trace_endpoint":
                     assert len(payloads) > before
                     verify(wait_for_trace(jaeger, saved["trace_id"], names_for("success")), "success")
@@ -262,6 +327,7 @@ builtins.__import__ = missing
                     assert saved["provider"] is False
                 reports.append({"scenario": variant, "passed": True})
         private_free(json.dumps(payloads))
+        verify_metrics(metric_payloads)
         private_free(diagnostics.getvalue())
         print("VERSIONS " + json.dumps({"sdk": version("opentelemetry-sdk"),
               "exporter": version("opentelemetry-exporter-otlp-proto-http"),
@@ -271,6 +337,8 @@ builtins.__import__ = missing
     finally:
         if provider is not None:
             provider.shutdown()
+        if meters is not None:
+            meters.shutdown()
         if proxy is not None:
             proxy.shutdown()
             proxy.server_close()
@@ -282,7 +350,7 @@ builtins.__import__ = missing
                  "python": platform.python_version(), "sdk": version("opentelemetry-sdk"),
                  "exporter": version("opentelemetry-exporter-otlp-proto-http"),
                  "retrieval": "vector", "timing": "measured deterministic stubs; 150ms injected delay"},
-             "export_requests": len(payloads), "diagnostic_lines": len(diagnostics.getvalue().splitlines())},
+             "export_requests": len(payloads), "metric_export_requests": len(metric_payloads), "diagnostic_lines": len(diagnostics.getvalue().splitlines())},
             indent=2) + "\n")
         logging.getLogger().removeHandler(handler)
         os.environ.clear()
