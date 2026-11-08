@@ -1,5 +1,5 @@
 # Full generation evals (python evals.py --with-llm) against Claude.
-# Each run makes about 38 Anthropic API calls per retrieval mode (about $0.27 per mode).
+# Each run makes about 46 Anthropic API calls per retrieval mode (about $0.42 per mode, measured 2026-11-08).
 # Runs weekly and on manual dispatch only: never on pull_request, so forks
 # cannot reach the API key and PRs do not spend money.
 

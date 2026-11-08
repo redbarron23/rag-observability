@@ -519,7 +519,7 @@ Retrieval-only evals run in CI and exit non-zero on any failure, including missi
 
 - **What it runs:** ingest of the sample corpus, then the full evals once per retrieval mode (`vector` and `hybrid`) as separate matrix jobs.
 - **Manual runs:** Actions → LLM evals → Run workflow, or `gh workflow run llm-evals.yml -f retrieval=vector` (`vector`, `hybrid` or `both`, the default).
-- **Cost:** 38 API calls (30 main plus 8 held-out), about $0.27 per mode per run at the [latest results](#latest-results) token counts, so about $0.54 for a weekly run of both modes (roughly $2.30 a month). The run artifact records the actual token usage.
+- **Cost:** 46 API calls (38 main plus 8 held-out), about $0.42 per mode per run at the token counts measured on 8 November 2026 ([benchmark](benchmark.md)), so about $0.84 for a weekly run of both modes (roughly $3.60 a month). Cost grows with the number of eval cases. The run artifact records the actual token usage.
 - **Results:** each mode uploads an `llm-evals-<mode>` artifact (kept 90 days) with the full log and the [run artifact](#comparing-eval-runs) `evals-<mode>.json` written by `evals.py --output`. The short summary on the run page is read from that JSON.
 - **Failures:** any failing case fails the job, so GitHub notifies the maintainer through its usual failed-workflow notifications.
 - **Setup:** the workflow needs an `ANTHROPIC_API_KEY` repository secret. Add it once with `gh secret set ANTHROPIC_API_KEY` (it prompts for the value). Without it, the workflow skips the evals with a notice instead of failing.
