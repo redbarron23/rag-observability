@@ -291,7 +291,7 @@ def report(result: dict) -> str:
             f"{rec['at_1']:>3}/{rec['total']:<3} {rec['at_3']:>3}/{rec['total']:<3} "
             f"{rec['at_6']:>3}/{rec['total']:<3} {a['mrr_first_supporting_section']:>6} "
             f"{u['rejected']:>3}/{u['total']:<3} {r['warm']['median_ms']:>7}ms "
-            f"{r['warm']['p95_ms']:>7}ms {cold['init_s'] + cold['first_query_s']:>6}s")
+            f"{r['warm']['p95_ms']:>7}ms {cold['init_s'] + cold['first_query_s']:>6.3f}s")
     return "\n".join(lines)
 
 

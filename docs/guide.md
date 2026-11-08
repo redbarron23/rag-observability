@@ -197,6 +197,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `api.py` | Retrieval-only local HTTP API (`POST /retrieve`, `GET /health`); no provider key. See [HTTP API](http-api.md) |
 | `evals.py` | 27 answerable and 6 unanswerable cases plus 8 held-out: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
+| `benchmark.py` | Keyword (BM25) vs vector vs hybrid retrieval on the eval questions: retrieval checks plus cold and warm latency, no provider calls ([retrieval benchmark](benchmark.md)) |
 | `eval_artifact.py` | Builds the versioned JSON run artifact that `evals.py --output` writes ([comparing eval runs](#comparing-eval-runs)) |
 | `adversarial_evals.py` | Conflicting, superseded and injected-instruction scenarios over a separate fixture index: offline retrieval and prompt-construction checks, opt-in generation (`--with-llm`) ([adversarial scenarios](#adversarial-scenarios)) |
 | `fixtures/adversarial/` | The adversarial fixture corpus and `scenarios.json` (expected behaviour per scenario); never part of `data/` or the main index |
@@ -287,6 +288,8 @@ Retrieval evals on the bundled corpus (top-6, 0.6 cutoff):
 | `hybrid` | 33/33 | 21/32 | 29/32 | 32/32 |
 
 These numbers include the obs-agent vocabulary cases added with the tagging-standard alignment (issue #56) and the cost-runbook cases ([obs-agent#91](https://github.com/redbarron23/obs-agent/issues/91)). The modes differ only at rank 3: hybrid ranks the cost smoothing plan's *Commitment tiers* section fourth for `conflict-commitment-tier-after-spike`. On the earlier 21-case set, hybrid moved the supporting section to rank 1 for `tracing-use-cases` and `exact-basic-logs`, and from rank 3 to 2 for `exact-gcp-coverage-figure`; nothing ranked lower and all four unanswerable questions were still rejected. Vector stays the default because no case changes from fail to pass, and with Claude Sonnet 5.5 the full generation evals passed 21/21 in both modes on that set. The two `short-*` cases pass in both modes because of the [exact-term margin](#exact-term-margin); without it they fail in both.
+
+The [retrieval benchmark](benchmark.md) (issue #34) compares both modes with a keyword-only BM25 baseline and measures latency. On 8 November 2026 keyword passed 30/32 cases and rejected 1/6 unanswerable questions. Vector and hybrid both passed 32/32 and rejected 6/6, and hybrid added about 1.6 ms per warm query.
 
 #### Exact-term margin
 

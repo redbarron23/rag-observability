@@ -1,0 +1,420 @@
+{
+  "kind": "retrieval-benchmark",
+  "schema_version": 1,
+  "issue": 34,
+  "started_at": "2026-11-08T16:27:10.390128+00:00",
+  "finished_at": "2026-11-08T16:28:12.804092+00:00",
+  "code": {
+    "git_sha": "d09793200516156b256a86a3321a88fc56f3c3d0",
+    "git_dirty": false
+  },
+  "corpus": {
+    "provenance": "available",
+    "corpus_sha256": "d3c05b06c0c6f28544cd8fb2f3bb6694aac9b1566d3ea6dd60f975024cc3130f",
+    "ingested_at": "2026-11-08T16:20:45.338577+00:00",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "chunk_size": 500,
+    "document_count": 9,
+    "collection": "observability-docs-a1d5fe3d033743f78f4b3d3d6c864bc0",
+    "chunk_count": 82,
+    "documents": 9,
+    "chunks": 82,
+    "words": 4492,
+    "characters": 30081
+  },
+  "embedding": {
+    "indexed": {
+      "model": "all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    },
+    "installed": {
+      "model": "all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "sentence_transformers_version": "6.1.0"
+    }
+  },
+  "settings": {
+    "k": 6,
+    "max_distance": 0.6,
+    "exact_term_margin": 0.1,
+    "section_max_chunks": 3,
+    "rrf_k": 60,
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75,
+    "keyword": "BM25 top-k, no distance cutoff, no section completion",
+    "vector": "cosine top-k, distance cutoff + exact-term margin, section completion",
+    "hybrid": "RRF(cosine, BM25) top-k, same cutoff and section completion",
+    "warm_repeats": 5,
+    "cold_runs": 3
+  },
+  "machine": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_count": 8,
+    "python": "3.11.5",
+    "memory_gb": 16.0,
+    "cpu_model": "Apple M2",
+    "packages": {
+      "chromadb": "1.5.9",
+      "sentence-transformers": "6.1.0",
+      "torch": "2.14.1"
+    }
+  },
+  "generation": {
+    "llm_called": false,
+    "reason": "retrieval-only benchmark; see evals.py --with-llm"
+  },
+  "modes": {
+    "keyword": {
+      "quality": {
+        "main": {
+          "answerable": {
+            "passed": 30,
+            "total": 32,
+            "by_dimension": {
+              "sources": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "sections": {
+                "passed": 30,
+                "failed": 2,
+                "unevaluated": 0
+              },
+              "evidence": {
+                "passed": 31,
+                "failed": 1,
+                "unevaluated": 0
+              }
+            },
+            "supporting_section_recall": {
+              "total": 37,
+              "at_1": 21,
+              "at_3": 30,
+              "at_6": 35
+            },
+            "mrr_first_supporting_section": 0.78,
+            "failed_cases": [
+              "tagging-standard",
+              "obs-agent-suspect-env"
+            ]
+          },
+          "unanswerable": {
+            "rejected": 1,
+            "total": 6,
+            "failed_cases": [
+              "unanswerable-oncall-rota",
+              "unanswerable-vendor-pricing",
+              "unanswerable-k8s-version",
+              "unanswerable-outage-root-cause",
+              "unanswerable-logging-spend-amount"
+            ]
+          }
+        },
+        "heldout": {
+          "answerable": {
+            "passed": 6,
+            "total": 6,
+            "by_dimension": {
+              "sources": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "sections": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "evidence": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              }
+            },
+            "supporting_section_recall": {
+              "total": 6,
+              "at_1": 5,
+              "at_3": 6,
+              "at_6": 6
+            },
+            "mrr_first_supporting_section": 0.889,
+            "failed_cases": []
+          },
+          "unanswerable": {
+            "rejected": 0,
+            "total": 2,
+            "failed_cases": [
+              "heldout-unanswerable-escalation-policy",
+              "heldout-unanswerable-grafana-version"
+            ]
+          }
+        }
+      },
+      "warm": {
+        "queries": 190,
+        "median_ms": 0.52,
+        "p95_ms": 0.57,
+        "mean_ms": 0.52,
+        "max_ms": 0.58
+      },
+      "cold": {
+        "runs": [
+          {
+            "import_s": 3.957,
+            "init_s": 0.043,
+            "first_query_s": 0.002,
+            "process_wall_s": 4.608
+          },
+          {
+            "import_s": 3.345,
+            "init_s": 0.045,
+            "first_query_s": 0.002,
+            "process_wall_s": 3.95
+          },
+          {
+            "import_s": 3.56,
+            "init_s": 0.045,
+            "first_query_s": 0.002,
+            "process_wall_s": 4.181
+          }
+        ],
+        "median": {
+          "import_s": 3.56,
+          "init_s": 0.045,
+          "first_query_s": 0.002,
+          "process_wall_s": 4.181
+        }
+      }
+    },
+    "vector": {
+      "quality": {
+        "main": {
+          "answerable": {
+            "passed": 32,
+            "total": 32,
+            "by_dimension": {
+              "sources": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "sections": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "evidence": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              }
+            },
+            "supporting_section_recall": {
+              "total": 37,
+              "at_1": 25,
+              "at_3": 35,
+              "at_6": 37
+            },
+            "mrr_first_supporting_section": 0.871,
+            "failed_cases": []
+          },
+          "unanswerable": {
+            "rejected": 6,
+            "total": 6,
+            "failed_cases": []
+          }
+        },
+        "heldout": {
+          "answerable": {
+            "passed": 6,
+            "total": 6,
+            "by_dimension": {
+              "sources": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "sections": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "evidence": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              }
+            },
+            "supporting_section_recall": {
+              "total": 6,
+              "at_1": 5,
+              "at_3": 6,
+              "at_6": 6
+            },
+            "mrr_first_supporting_section": 0.917,
+            "failed_cases": []
+          },
+          "unanswerable": {
+            "rejected": 1,
+            "total": 2,
+            "failed_cases": [
+              "heldout-unanswerable-escalation-policy"
+            ]
+          }
+        }
+      },
+      "warm": {
+        "queries": 190,
+        "median_ms": 7.24,
+        "p95_ms": 10.54,
+        "mean_ms": 7.51,
+        "max_ms": 20.68
+      },
+      "cold": {
+        "runs": [
+          {
+            "import_s": 3.378,
+            "init_s": 2.736,
+            "first_query_s": 0.122,
+            "process_wall_s": 6.81
+          },
+          {
+            "import_s": 3.257,
+            "init_s": 2.688,
+            "first_query_s": 0.141,
+            "process_wall_s": 6.786
+          },
+          {
+            "import_s": 3.254,
+            "init_s": 2.636,
+            "first_query_s": 0.135,
+            "process_wall_s": 6.718
+          }
+        ],
+        "median": {
+          "import_s": 3.257,
+          "init_s": 2.688,
+          "first_query_s": 0.135,
+          "process_wall_s": 6.786
+        }
+      }
+    },
+    "hybrid": {
+      "quality": {
+        "main": {
+          "answerable": {
+            "passed": 32,
+            "total": 32,
+            "by_dimension": {
+              "sources": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "sections": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "evidence": {
+                "passed": 32,
+                "failed": 0,
+                "unevaluated": 0
+              }
+            },
+            "supporting_section_recall": {
+              "total": 37,
+              "at_1": 27,
+              "at_3": 33,
+              "at_6": 37
+            },
+            "mrr_first_supporting_section": 0.898,
+            "failed_cases": []
+          },
+          "unanswerable": {
+            "rejected": 6,
+            "total": 6,
+            "failed_cases": []
+          }
+        },
+        "heldout": {
+          "answerable": {
+            "passed": 6,
+            "total": 6,
+            "by_dimension": {
+              "sources": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "sections": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              },
+              "evidence": {
+                "passed": 6,
+                "failed": 0,
+                "unevaluated": 0
+              }
+            },
+            "supporting_section_recall": {
+              "total": 6,
+              "at_1": 5,
+              "at_3": 6,
+              "at_6": 6
+            },
+            "mrr_first_supporting_section": 0.917,
+            "failed_cases": []
+          },
+          "unanswerable": {
+            "rejected": 1,
+            "total": 2,
+            "failed_cases": [
+              "heldout-unanswerable-escalation-policy"
+            ]
+          }
+        }
+      },
+      "warm": {
+        "queries": 190,
+        "median_ms": 8.87,
+        "p95_ms": 11.04,
+        "mean_ms": 9.1,
+        "max_ms": 12.93
+      },
+      "cold": {
+        "runs": [
+          {
+            "import_s": 3.503,
+            "init_s": 2.716,
+            "first_query_s": 0.134,
+            "process_wall_s": 6.927
+          },
+          {
+            "import_s": 3.4,
+            "init_s": 2.674,
+            "first_query_s": 0.162,
+            "process_wall_s": 7.008
+          },
+          {
+            "import_s": 4.189,
+            "init_s": 2.9,
+            "first_query_s": 0.156,
+            "process_wall_s": 7.918
+          }
+        ],
+        "median": {
+          "import_s": 3.503,
+          "init_s": 2.716,
+          "first_query_s": 0.156,
+          "process_wall_s": 7.008
+        }
+      }
+    }
+  }
+}
