@@ -1,0 +1,4 @@
+-r requirements.txt
+# Optional read-only MCP server (mcp_server.py). Core installs do not need it.
+# 2.x renamed FastMCP to MCPServer; mcp_server.py uses the 2.x lowlevel Server.
+mcp>=2.3.0,<3

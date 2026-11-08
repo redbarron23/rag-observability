@@ -1,5 +1,6 @@
 -r requirements-ui.txt
 -r requirements-otel.txt
+-r requirements-mcp.txt  # so CI runs tests/test_mcp_server.py
 pytest>=9.2.0,<10
 jsonschema>=4.26.0,<5  # contract tests only; api.py never imports it
 ruff>=0.17.3,<0.18  # 0.x minor releases can add rules; Dependabot bumps it

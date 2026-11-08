@@ -86,6 +86,9 @@ corpus identity and freshness, and never generates an answer. It binds to loopba
 set `RAG_API_KEY` to require a bearer token. See the [HTTP API reference](docs/http-api.md) for
 the schema, errors, access boundary and a client example.
 
+The same retrieval is available to Claude Code, Claude Desktop and other agents as a read-only
+MCP tool (`python mcp_server.py`, optional `requirements-mcp.txt`). See the [MCP server guide](docs/mcp.md).
+
 ## How it works
 
 ```mermaid
