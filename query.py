@@ -24,7 +24,7 @@ import re
 from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
@@ -691,7 +691,7 @@ class RAGEngine:
                 chunks = self._retrieve_vector(query, query_embedding, n_results, max_distance)
             chunks = self._complete_sections(query_embedding, chunks)
             statuses = self.policy_statuses(as_of)
-            day = as_of or datetime.now(timezone.utc).date()
+            day = as_of or datetime.now(UTC).date()
             for chunk in chunks:
                 chunk["policy"] = (statuses or {}).get(chunk["source"]) or policy.unavailable(day)
             trace_attributes({"rag.retrieval.hit_count": len(chunks),
@@ -705,7 +705,7 @@ class RAGEngine:
     def policy_statuses(self, as_of: date | None = None) -> dict[str, dict] | None:
         """Every indexed document's policy status on as_of, or None when the
         index has no policy registry (built before issue #78)."""
-        as_of = as_of or datetime.now(timezone.utc).date()
+        as_of = as_of or datetime.now(UTC).date()
         key = (getattr(self, "collection_name", None), as_of)
         cache = self.__dict__.setdefault("_policy_cache", {})
         if key not in cache:

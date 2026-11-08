@@ -42,7 +42,7 @@ import statistics
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MODES = ("keyword", "vector", "hybrid")
@@ -310,7 +310,7 @@ def main() -> None:
         print(json.dumps(cold_probe(args.cold_probe, args.persist_dir)))
         return
     result = run(args.persist_dir, args.repeats, args.cold_runs)
-    print(f"Retrieval benchmark, {datetime.now(timezone.utc):%Y-%m-%d}, "
+    print(f"Retrieval benchmark, {datetime.now(UTC):%Y-%m-%d}, "
           f"{result['corpus']['documents']} documents / {result['corpus']['chunks']} chunks, "
           f"k={result['settings']['k']}")
     print(report(result))

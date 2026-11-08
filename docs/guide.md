@@ -833,7 +833,7 @@ Add questions and expected source/section pairs in `evals.py` for your documents
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+ (CI tests 3.11, 3.12 and 3.13)
 - For generation, one of (retrieval and evals need no key):
   - `ANTHROPIC_API_KEY` for Claude (default provider)
   - `DEEPSEEK_API_KEY` for DeepSeek

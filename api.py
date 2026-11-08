@@ -36,7 +36,7 @@ import socket
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -228,7 +228,7 @@ class RetrievalService:
         if cached and cached[1] == engine.collection_name and now - cached[0] < FRESHNESS_TTL_SECONDS:
             return cached[2]
         result = check_freshness(self.persist_dir, self.data_dir)
-        checked_at = datetime.now(timezone.utc).isoformat()
+        checked_at = datetime.now(UTC).isoformat()
         if result["status"] == "unavailable":
             # The reason can name local paths; log it instead of returning it.
             logger.warning("Freshness unavailable: %s", result.get("reason"))

@@ -8,7 +8,7 @@ Report security problems privately as described in [SECURITY.md](SECURITY.md), n
 
 ## Development setup
 
-Python 3.10 or newer (CI uses 3.11).
+Python 3.11 or newer. CI tests 3.11, 3.12 and 3.13.
 
 ```bash
 git clone https://github.com/redbarron23/rag-observability.git
