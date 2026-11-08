@@ -1,0 +1,10 @@
+# Read by `streamlit run` when started from the repository root.
+[server]
+# The UI has no authentication: listen on loopback only. Override deliberately, behind an
+# authenticating reverse proxy, never just to reach it from another machine.
+address = "127.0.0.1"
+# Don't watch the model libraries for changes; restart the app after editing its code.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false

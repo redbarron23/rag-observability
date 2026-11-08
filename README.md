@@ -11,7 +11,7 @@ sections, and asks Claude or DeepSeek to answer with document and section citati
 
 ## Quick start
 
-Requirements: Python **3.10+**. Embedding runs locally on CPU; the embedding model downloads on first use.
+Requirements: Python **3.11+**. Embedding runs locally on CPU; the embedding model downloads on first use.
 
 ```bash
 git clone https://github.com/redbarron23/rag-observability.git
@@ -39,7 +39,7 @@ Generated answers use a hosted LLM and may incur provider charges. See [the guid
 ```bash
 python -m pip install -r requirements-ui.txt
 python ingest.py
-python -m streamlit run app.py --server.address 127.0.0.1 --server.fileWatcherType none
+python -m streamlit run app.py
 ```
 
 Open the local URL printed in the terminal. **Find sources** needs no provider key: inspect
@@ -68,9 +68,10 @@ ones for rollback. See [pruning old collections](docs/guide.md#pruning-old-colle
 After re-ingesting documents, click **Reload index** to reload the cached engine.
 Use `python ingest.py --check` to detect changed local source documents or an embedding-version mismatch; verbose CLI queries
 show the indexed timestamp and corpus hash. See [corpus provenance](docs/guide.md#indexed-corpus-provenance-and-freshness).
-The launch command disables file watching to avoid inspecting the model libraries; restart
-the app after editing its Python code.
-The interface is intended for local use and has no authentication.
+Run it from the repository root so Streamlit reads [`.streamlit/config.toml`](.streamlit/config.toml),
+which binds the app to `127.0.0.1` and disables file watching (restart the app after editing its
+Python code). The interface is intended for local use and has no authentication; see
+[SECURITY.md](SECURITY.md#the-streamlit-ui-has-no-authentication).
 
 ## Retrieval HTTP API
 

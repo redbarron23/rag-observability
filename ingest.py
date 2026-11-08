@@ -21,7 +21,7 @@ import os
 import re
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -419,7 +419,7 @@ def ingest_documents(data_dir: str = "data", persist_dir: str = "chroma_db",
         replaced = None
     manifest = {
         "schema_version": 1,
-        "ingested_at": datetime.now(timezone.utc).isoformat(),
+        "ingested_at": datetime.now(UTC).isoformat(),
         "data_dir": resolved_dir,
         "embedding_model": EMBED_MODEL,
         # Reused vectors keep their recorded revision when the cache cannot tell.

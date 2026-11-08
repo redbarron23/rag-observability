@@ -1,5 +1,5 @@
 # Lint only; formatting isn't enforced, to keep the existing hand-aligned style.
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 
 [lint]

@@ -35,10 +35,11 @@ boundaries to keep in mind before changing that.
 - `app.py` has no login and does not read `RAG_API_KEY`. Anyone who can reach it can query every
   indexed document, upload Markdown files into `data/uploads/` and re-index, and generate answers
   that spend your provider credit.
-- It is local-only **when started as documented**, with `--server.address 127.0.0.1`. The repo
-  ships no Streamlit config, and Streamlit's own default listens on all interfaces, so starting it
-  without that flag exposes it to your network. Don't expose it beyond loopback; put it behind an
-  authenticating reverse proxy if you must.
+- It listens on loopback only: [`.streamlit/config.toml`](.streamlit/config.toml) sets
+  `server.address = "127.0.0.1"`. Streamlit reads that file when started from the repository
+  root, as documented. Started from another directory, or with `--server.address` overridden,
+  Streamlit's own default listens on all interfaces and exposes the UI to your network. Don't
+  expose it beyond loopback; put it behind an authenticating reverse proxy if you must.
 - Uploads must be UTF-8 `.md` files with a plain filename, at most 5 MB each. They are stored and
   indexed, never executed.
 
@@ -89,8 +90,8 @@ boundaries to keep in mind before changing that.
 
 ## Out of scope
 
-- The Streamlit UI having no authentication, or being reachable when started without
-  `--server.address 127.0.0.1`.
+- The Streamlit UI having no authentication, or being reachable when its loopback setting is
+  bypassed (started outside the repository root, or with `--server.address` overridden).
 - A model following an injected instruction in a document you chose to index, without bypassing
   the mitigations above. Please still report new techniques as ordinary issues so they can be
   added to the adversarial scenarios.

@@ -29,6 +29,16 @@ Consumers such as obs-agent should pin a release tag for code and send
 
 ## [Unreleased]
 
+### Changed
+
+- Python 3.11 is now the minimum (3.10 reached end of life in October 2026). CI tests 3.11, 3.12
+  and 3.13.
+
+### Security
+
+- The Streamlit UI binds to `127.0.0.1` by default through `.streamlit/config.toml`, instead of
+  relying on a launch flag.
+
 ## [0.1.0] - 2026-11-08
 
 First tagged release. It serves retrieval API **contract 1.1.0**. Everything below was merged
