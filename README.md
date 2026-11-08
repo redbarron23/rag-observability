@@ -154,6 +154,10 @@ covers the opt-in obs-agent Compose setup and [cross-service trace context](docs
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, adding eval cases, pull requests and
+releases, [SECURITY.md](SECURITY.md) for trust boundaries and private vulnerability reporting, and
+[CHANGELOG.md](CHANGELOG.md) for what changed in each release.
+
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m ruff check .
@@ -171,7 +175,11 @@ See [scheduled LLM evals](docs/guide.md#scheduled-llm-evals).
 For the obs-agent integration, keep documentation API contract tests and retrieval
 evaluations here. obs-agent owns its stub-based consumer tests and the real two-repo smoke test.
 See [test ownership and implementation order](https://github.com/redbarron23/obs-agent#testing-the-rag-integration)
-for the shared approach, including version pinning and independent CI runs.
+for the shared approach, including version pinning and independent CI runs. Pin obs-agent to a
+release tag of this repo (for example `v0.1.0`) rather than a branch, vendor `contract/v1/` from
+that same tag, and read the [changelog](CHANGELOG.md) before moving the pin. Releases use SemVer;
+the project version and the API contract version are separate
+(see [versioning](CHANGELOG.md#versioning)).
 
 Follow the [open-source roadmap](https://github.com/users/redbarron23/projects/2).
 
