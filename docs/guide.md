@@ -196,6 +196,7 @@ LLM_PROVIDER=deepseek LLM_MODEL=deepseek-chat python evals.py --with-llm
 | `query.py` | Retrieval + generation: `RAGEngine` class with `retrieve()`, `answer()` and `answer_with_citations()` |
 | `app.py` | Optional Streamlit interface for local retrieval, evidence inspection, and cited answers; install `requirements-ui.txt` and follow the [launch instructions](../README.md#local-web-interface) |
 | `api.py` | Retrieval-only local HTTP API (`POST /retrieve`, `GET /health`); no provider key. See [HTTP API](http-api.md) |
+| `mcp_server.py` | Read-only MCP server (stdio) exposing the same retrieval as one `retrieve` tool; optional `requirements-mcp.txt`. See [MCP server](mcp.md) |
 | `evals.py` | 27 answerable and 6 unanswerable cases plus 8 held-out: source attribution (retrieval-only, no API key), then facts, citations and declines (`--with-llm`) |
 | `benchmark.py` | Keyword (BM25) vs vector vs hybrid retrieval on the eval questions: retrieval checks plus cold and warm latency, no provider calls ([retrieval benchmark](benchmark.md)) |
 | `eval_artifact.py` | Builds the versioned JSON run artifact that `evals.py --output` writes ([comparing eval runs](#comparing-eval-runs)) |
