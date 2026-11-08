@@ -6,6 +6,7 @@ same closed contract schemas the HTTP API tests use.
 """
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -24,10 +25,17 @@ from query import RAGEngine
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
+TAG_WORD = re.compile(r"\btags?\b", re.IGNORECASE)
+
+
 def fake_embedder():
-    """Texts mentioning "tag" embed as [1, 0], everything else as [0, 1]."""
+    """Texts with the word "tag" or "tags" embed as [1, 0], everything else as [0, 1].
+
+    A whole-word match, so "percentages" or "stage" don't count. Matching chunks
+    still tie, so tests must not depend on their order.
+    """
     def encode(texts, **_):
-        return np.array([[1.0, 0.0] if "tag" in t.lower() else [0.0, 1.0] for t in texts])
+        return np.array([[1.0, 0.0] if TAG_WORD.search(t) else [0.0, 1.0] for t in texts])
     return Mock(encode=Mock(side_effect=encode))
 
 
@@ -95,11 +103,10 @@ def test_call_against_bundled_corpus_matches_the_response_contract(bundled_index
     assert data["generated"] is False and data["content_trust"] == "untrusted"
     assert data["query"] == {"question": "Which tags are required?", "k": 3,
                              "max_distance": 0.5, "retrieval": "vector"}
-    # Only ranked hits must match. The fake embedder ties every chunk containing "tag"
-    # (including "percentages"), so which tied chunks rank is arbitrary, and section
-    # completion then appends their siblings (expanded_from set), which need not match.
+    # Only ranked hits must match: tied matches rank in arbitrary order, and section
+    # completion appends their siblings (expanded_from set), which need not mention tags.
     ranked = [hit for hit in data["hits"] if hit["expanded_from"] is None]
-    assert len(ranked) == 3 and all("tag" in hit["text"].lower() for hit in ranked)
+    assert len(ranked) == 3 and all(TAG_WORD.search(hit["text"]) for hit in ranked)
     assert data["corpus"]["provenance"] == "available"
     assert data["corpus"]["document_count"] == len(list(DATA_DIR.rglob("*.md")))
     generate.assert_not_called()

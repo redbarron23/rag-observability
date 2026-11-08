@@ -179,7 +179,9 @@ def test_fixtures_through_ingestion_and_retrieval(engine):
         "README.md": "unversioned", "oncall-v1.md": "active", "oncall-v2.md": "future",
         "backup-2020.md": "expired", "access-review-broken.md": "invalid",
         "legacy-escalation.md": "unversioned"}
-    chunks = rag.retrieve("on-call response times", n_results=10, max_distance=None, as_of=AS_OF)
+    # Every fixture chunk has the same embedding, so top-k order is arbitrary: retrieve them all.
+    chunks = rag.retrieve("on-call response times", n_results=rag.collection.count(),
+                          max_distance=None, as_of=AS_OF)
     assert all(not c["text"].startswith("---") and "policy_id:" not in c["text"] for c in chunks)
     by_source = {c["source"]: c["policy"] for c in chunks}
     assert by_source["oncall-v1.md"]["pending_superseded_by"] == ["example-oncall-policy@2"]
