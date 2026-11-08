@@ -147,6 +147,16 @@ def docker(*args):
                           text=True, timeout=60).stdout.strip()
 
 
+def variant_tagged(payload: dict, variant: str) -> bool:
+    """Whether an exported OTLP payload came from the process tagged with this variant."""
+    for group in payload.get("resourceMetrics", []) + payload.get("resourceSpans", []):
+        for attribute in group.get("resource", {}).get("attributes", []):
+            if (attribute.get("key") == "rag.check.variant"
+                    and attribute.get("value", {}).get("stringValue") == variant):
+                return True
+    return False
+
+
 def check():
     original_env = os.environ.copy()
     name = "rag-telemetry-" + uuid4().hex[:12]
@@ -288,6 +298,11 @@ def check():
                     env["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://127.0.0.1:1"
                     env["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc"
                     env["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] = "http/protobuf"
+                # Tag this process's telemetry: the parent's own periodic metric export
+                # can reach the proxy while the variant runs and must not be counted.
+                tag = f"rag.check.variant={variant}"
+                env["OTEL_RESOURCE_ATTRIBUTES"] = ",".join(
+                    filter(None, [env.get("OTEL_RESOURCE_ATTRIBUTES"), tag]))
                 report = str(Path(temp) / "result.json")
                 code = '''import json, sys
 import query
@@ -315,7 +330,8 @@ builtins.__import__ = missing
                 private_free(result.stdout + result.stderr)
                 assert result.returncode == 0, f"configuration failed: {variant}"
                 saved = json.loads(Path(report).read_text())
-                assert len(metric_payloads) == metrics_before, f"unexpected metric export: {variant}"
+                stray = [m for m in metric_payloads[metrics_before:] if variant_tagged(m, variant)]
+                assert not stray, f"unexpected metric export: {variant}"
                 if variant == "trace_endpoint":
                     assert len(payloads) > before
                     verify(wait_for_trace(jaeger, saved["trace_id"], names_for("success")), "success")
